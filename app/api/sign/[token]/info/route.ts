@@ -63,12 +63,18 @@ export async function GET(
             return NextResponse.json({ error: 'Document not found' }, { status: 404 })
         }
 
-        // ── Load this signer's placeholders ───────────────────────────────────────
-        const { data: placeholders } = await admin
+        // ── Load ALL placeholders and tag is_mine ─────────────────────────────────
+        // Returns every placeholder on the document so the sign page can show
+        // other signers' boxes as read-only watermarks.
+        const { data: rawPlaceholders } = await admin
             .from('placeholders')
-            .select('id, page_number, x_percent, y_percent, width_percent, height_percent, label')
+            .select('id, page_number, x_percent, y_percent, width_percent, height_percent, label, assigned_signer_email')
             .eq('document_id', doc.id)
-            .eq('assigned_signer_email', signer.email)
+
+        const placeholders = (rawPlaceholders ?? []).map(p => ({
+            ...p,
+            is_mine: p.assigned_signer_email === signer.email,
+        }))
 
         // ── Generate a short-lived signed URL for the PDF (5 min) ─────────────────
         const { data: signedUrlData } = await admin.storage
@@ -84,7 +90,8 @@ export async function GET(
 
         return NextResponse.json({
             documentName: doc.file_name,
-            placeholders: placeholders ?? [],
+            signerEmail: signer.email,
+            placeholders,
             pdfUrl: signedUrlData?.signedUrl ?? null,
         })
     } catch (err) {

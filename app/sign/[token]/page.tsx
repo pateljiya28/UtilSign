@@ -14,6 +14,8 @@ interface PlaceholderData {
     width_percent: number
     height_percent: number
     label: string | null
+    assigned_signer_email: string
+    is_mine: boolean
 }
 
 interface SignatureCapture {
@@ -54,6 +56,9 @@ export default function SignPage() {
     const [modalOpen, setModalOpen] = useState(false)
     const [activePlaceholderId, setActivePlaceholderId] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
+
+    // Refs for auto-scroll
+    const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
     // ── Step 1: Validate token + send OTP ──────────────────────────────────────
     useEffect(() => {
@@ -154,14 +159,9 @@ export default function SignPage() {
     // ── Step 3: Load document for viewing ──────────────────────────────────────
     const loadDocument = async (session: string) => {
         try {
-            // Fetch placeholders and PDF URL via the submit route's context
-            // We reuse the token GET endpoint info — placeholders are delivered as part of the page
-            // For MVP: render the PDF client-side from unsigned URL
             const pdfjsLib = await import('pdfjs-dist')
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
-            // Fetch actual document metadata through a simple placeholder endpoint
-            // For the signer, we use a special info fetch
             const infoRes = await fetch(`/api/sign/${token}/info`, {
                 headers: { 'Authorization': `Bearer ${session}` },
             })
@@ -202,14 +202,76 @@ export default function SignPage() {
         if (!activePlaceholderId) return
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== activePlaceholderId)
-            return [...filtered, { placeholderId: activePlaceholderId, imageBase64 }]
+            const updated = [...filtered, { placeholderId: activePlaceholderId, imageBase64 }]
+
+            // Auto-scroll to next unsigned placeholder after a brief delay
+            setTimeout(() => scrollToNextUnsigned(activePlaceholderId, updated), 400)
+
+            return updated
         })
         setModalOpen(false)
         setActivePlaceholderId(null)
     }
 
+    // ── Auto-scroll to next unsigned placeholder ───────────────────────────────
+    const scrollToNextUnsigned = (justSignedId: string, currentSignatures: SignatureCapture[]) => {
+        const signedIds = new Set(currentSignatures.map(s => s.placeholderId))
+        const mine = placeholders.filter(p => p.is_mine)
+
+        // Find the index of the just-signed placeholder
+        const justSignedIdx = mine.findIndex(p => p.id === justSignedId)
+
+        // Look for the next unsigned placeholder after the one just signed
+        let nextUnsigned: PlaceholderData | null = null
+        for (let i = justSignedIdx + 1; i < mine.length; i++) {
+            if (!signedIds.has(mine[i].id)) {
+                nextUnsigned = mine[i]
+                break
+            }
+        }
+        // Wrap around: check from the beginning
+        if (!nextUnsigned) {
+            for (let i = 0; i < justSignedIdx; i++) {
+                if (!signedIds.has(mine[i].id)) {
+                    nextUnsigned = mine[i]
+                    break
+                }
+            }
+        }
+
+        if (!nextUnsigned) return // all signed
+
+        // Switch page if needed
+        if (nextUnsigned.page_number !== activePage) {
+            setActivePage(nextUnsigned.page_number)
+            // Wait for page render, then scroll
+            setTimeout(() => {
+                const el = placeholderRefs.current[nextUnsigned!.id]
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }, 300)
+        } else {
+            const el = placeholderRefs.current[nextUnsigned.id]
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }
+
+    // ── Apply same signature (replication) ─────────────────────────────────────
+    const handleApplySame = (placeholderId: string) => {
+        if (signatures.length === 0) return
+        const lastSig = signatures[signatures.length - 1]
+        setSignatures(prev => {
+            const filtered = prev.filter(s => s.placeholderId !== placeholderId)
+            const updated = [...filtered, { placeholderId, imageBase64: lastSig.imageBase64 }]
+            setTimeout(() => scrollToNextUnsigned(placeholderId, updated), 400)
+            return updated
+        })
+    }
+
     const isPlaceholderSigned = (id: string) => signatures.some(s => s.placeholderId === id)
-    const allSigned = placeholders.length > 0 && placeholders.every(p => isPlaceholderSigned(p.id))
+    // Only require the current signer's own placeholders to be signed
+    const myPlaceholders = placeholders.filter(p => p.is_mine)
+    const allSigned = myPlaceholders.length > 0 && myPlaceholders.every(p => isPlaceholderSigned(p.id))
+    const lastSignatureImage = signatures.length > 0 ? signatures[signatures.length - 1].imageBase64 : null
 
     // ── Step 5: Submit signatures ──────────────────────────────────────────────
     const handleSubmit = async () => {
@@ -383,11 +445,11 @@ export default function SignPage() {
                                 <p className="text-slate-400 text-sm">Click on each highlighted area to add your signature.</p>
                             </div>
                             <div className="flex items-center gap-2 text-xs text-slate-400">
-                                <span>{signatures.length}/{placeholders.length} signed</span>
+                                <span>{signatures.length}/{myPlaceholders.length} signed</span>
                                 <div className="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
                                     <div
                                         className="h-full rounded-full bg-brand-500 transition-all"
-                                        style={{ width: `${placeholders.length > 0 ? (signatures.length / placeholders.length) * 100 : 0}%` }}
+                                        style={{ width: `${myPlaceholders.length > 0 ? (signatures.length / myPlaceholders.length) * 100 : 0}%` }}
                                     />
                                 </div>
                             </div>
@@ -416,14 +478,57 @@ export default function SignPage() {
                             {placeholders
                                 .filter(p => p.page_number === activePage)
                                 .map(p => {
+                                    // ── Read-only watermark for other signers' placeholders ──
+                                    if (!p.is_mine) {
+                                        return (
+                                            <div
+                                                key={p.id}
+                                                title={`Reserved for: ${p.assigned_signer_email}`}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: `${p.x_percent}%`,
+                                                    top: `${p.y_percent}%`,
+                                                    width: `${p.width_percent}%`,
+                                                    height: `${p.height_percent}%`,
+                                                    border: '1.5px dashed #4b5563',
+                                                    borderRadius: 4,
+                                                    opacity: 0.75,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    pointerEvents: 'none',
+                                                    overflow: 'hidden',
+                                                    background: 'rgba(75,85,99,0.08)',
+                                                }}
+                                            >
+                                                <span style={{
+                                                    fontSize: '9px',
+                                                    color: '#6b7280',
+                                                    textAlign: 'center',
+                                                    padding: '2px 4px',
+                                                    wordBreak: 'break-all',
+                                                    lineHeight: 1.2,
+                                                }}>
+                                                    {p.assigned_signer_email}
+                                                </span>
+                                            </div>
+                                        )
+                                    }
+
+                                    // ── Clickable sign box for this signer's own placeholders ──
                                     const signed = isPlaceholderSigned(p.id)
                                     const sig = signatures.find(s => s.placeholderId === p.id)
+                                    const canReplicateHere = !signed && lastSignatureImage
+
                                     return (
                                         <div
                                             key={p.id}
-                                            className={`absolute cursor-pointer transition-all ${signed
+                                            ref={el => { placeholderRefs.current[p.id] = el }}
+                                            className={`absolute transition-all ${signed
                                                 ? 'border-2 border-emerald-500 bg-emerald-500/10'
-                                                : 'border-2 border-brand-400 bg-brand-500/10 hover:bg-brand-500/20 animate-pulse-slow'
+                                                : canReplicateHere
+                                                    ? 'border-2 border-amber-400 bg-amber-500/10'
+                                                    : 'border-2 border-brand-400 bg-brand-500/10 hover:bg-brand-500/20 animate-pulse-slow cursor-pointer'
                                                 }`}
                                             style={{
                                                 left: `${p.x_percent}%`,
@@ -431,11 +536,44 @@ export default function SignPage() {
                                                 width: `${p.width_percent}%`,
                                                 height: `${p.height_percent}%`,
                                             }}
-                                            onClick={() => handlePlaceholderClick(p.id)}
+                                            onClick={() => {
+                                                // Only open modal on direct click if no replication UI showing
+                                                if (!signed && !canReplicateHere) {
+                                                    handlePlaceholderClick(p.id)
+                                                }
+                                            }}
                                         >
                                             {signed && sig ? (
+                                                /* Already signed — show the signature */
                                                 <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain" />
+                                            ) : canReplicateHere ? (
+                                                /* Signature replication: preview + two buttons */
+                                                <div className="flex flex-col items-center justify-center h-full w-full gap-0.5 p-0.5" style={{ minHeight: 0 }}>
+                                                    <img
+                                                        src={lastSignatureImage}
+                                                        alt="Previous signature"
+                                                        className="object-contain opacity-50"
+                                                        style={{ maxHeight: '55%', maxWidth: '90%' }}
+                                                    />
+                                                    <div className="flex gap-1 flex-shrink-0">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
+                                                            className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap"
+                                                            title="Apply same signature"
+                                                        >
+                                                            ✓ Apply Same
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
+                                                            className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-slate-600 hover:bg-slate-500 text-white transition-colors whitespace-nowrap"
+                                                            title="Draw a new signature"
+                                                        >
+                                                            ✎ Sign New
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             ) : (
+                                                /* First placeholder — Click to sign */
                                                 <div className="flex items-center justify-center h-full">
                                                     <span className="text-brand-400 text-[10px] font-medium">✍ Click to sign</span>
                                                 </div>
@@ -456,7 +594,7 @@ export default function SignPage() {
                                 disabled={!allSigned || submitting}
                                 className="btn-primary text-sm"
                             >
-                                {submitting ? 'Submitting…' : allSigned ? '✓ Submit Signatures' : `Sign all ${placeholders.length} fields first`}
+                                {submitting ? 'Submitting…' : allSigned ? '✓ Submit Signatures' : `Sign all ${myPlaceholders.length} fields first`}
                             </button>
                         </div>
 

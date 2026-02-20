@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, createSupabaseAdminClient } from '@/lib/supabase'
 import { signMagicToken } from '@/lib/jwt'
-import { sendSigningRequest } from '@/lib/resend'
+import { sendSigningRequest, sendBroadcastNotification } from '@/lib/resend'
 import { logEvent } from '@/lib/audit'
 
 interface SignerInput {
@@ -111,6 +111,40 @@ export async function POST(
             event: 'email_delivered',
             metadata: { to: firstSigner.email },
         })
+
+        // ── Broadcast to all other signers ──────────────────────────────────────────
+        const sortedSigners = insertedSigners.sort(
+            (a: { priority: number }, b: { priority: number }) => a.priority - b.priority
+        )
+        const otherSigners = sortedSigners.slice(1) // everyone except signer #1
+        for (const signer of otherSigners) {
+            try {
+                await sendBroadcastNotification({
+                    to: signer.email,
+                    documentName: doc.file_name,
+                    senderName: user.email ?? 'Document sender',
+                    currentSignerEmail: firstSigner.email,
+                    signerPosition: signer.priority,
+                    totalSigners: insertedSigners.length,
+                })
+                await logEvent({
+                    documentId,
+                    signerId: signer.id,
+                    actorEmail: user.email ?? 'unknown',
+                    event: 'broadcast_sent',
+                    metadata: { to: signer.email, position: signer.priority },
+                })
+            } catch (broadcastErr) {
+                console.error(`[send] Broadcast to ${signer.email} failed:`, broadcastErr)
+                await logEvent({
+                    documentId,
+                    signerId: signer.id,
+                    actorEmail: user.email ?? 'unknown',
+                    event: 'email_failed',
+                    metadata: { to: signer.email, reason: 'broadcast_failed' },
+                })
+            }
+        }
 
         return NextResponse.json({ success: true })
     } catch (err) {

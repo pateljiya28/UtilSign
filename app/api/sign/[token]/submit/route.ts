@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { verifyToken, signMagicToken } from '@/lib/jwt'
 import { burnSignaturesIntoPDF } from '@/lib/pdf-burn'
-import { sendNextSignerEmail, sendCompletionEmail, sendDeclinedEmail } from '@/lib/resend'
+import { sendYourTurnNotification, sendProgressUpdate, sendCompletionEmail, sendDeclinedEmail } from '@/lib/resend'
 import { logEvent } from '@/lib/audit'
 
 interface SignatureSubmission {
@@ -258,14 +258,26 @@ export async function POST(
                 metadata: { to: next.email },
             })
 
-            // Send email — don't let a Resend failure crash the chain
+            // ── Fetch ALL signers for queue context ─────────────────────────────────
+            const { data: allCurrentSigners } = await admin
+                .from('signers')
+                .select('id, email, priority, status')
+                .eq('document_id', doc.id)
+                .order('priority', { ascending: true })
+
+            const totalSigners = allCurrentSigners?.length ?? 0
+            const remainingCount = allCurrentSigners?.filter(s => s.status !== 'signed').length ?? 0
+
+            // ── 1. Send "your turn" to next signer ─────────────────────────────────
             const nextSignLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${nextToken}`
             try {
-                await sendNextSignerEmail({
+                await sendYourTurnNotification({
                     to: next.email,
-                    previousSignerName: signer.email,
                     documentName: doc.file_name,
+                    justSignedEmail: signer.email,
                     signLink: nextSignLink,
+                    queuePosition: next.priority,
+                    totalSigners,
                 })
                 await logEvent({
                     documentId: doc.id,
@@ -275,7 +287,6 @@ export async function POST(
                     metadata: { to: next.email },
                 })
             } catch (emailErr) {
-                // Log email failure but don't fail the signing chain
                 await logEvent({
                     documentId: doc.id,
                     signerId: next.id,
@@ -283,6 +294,31 @@ export async function POST(
                     event: 'email_failed',
                     metadata: { to: next.email, error: emailErr instanceof Error ? emailErr.message : 'Unknown' },
                 })
+            }
+
+            // ── 2. Send progress update to all other signers (not just-signed, not next) ──
+            const observers = (allCurrentSigners ?? []).filter(
+                s => s.email !== signer.email && s.email !== next.email
+            )
+            for (const obs of observers) {
+                try {
+                    await sendProgressUpdate({
+                        to: obs.email,
+                        documentName: doc.file_name,
+                        justSignedEmail: signer.email,
+                        nextSignerEmail: next.email,
+                        remainingCount,
+                    })
+                    await logEvent({
+                        documentId: doc.id,
+                        signerId: obs.id,
+                        actorEmail: senderEmail,
+                        event: 'progress_notification_sent',
+                        metadata: { to: obs.email },
+                    })
+                } catch (obsErr) {
+                    console.error(`[submit] Progress update to ${obs.email} failed:`, obsErr)
+                }
             }
 
             return NextResponse.json({ success: true, final: false })
@@ -305,15 +341,32 @@ export async function POST(
 
         const downloadUrl = signedUrlData?.signedUrl ?? `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`
 
+        const completionSigners = (allSigners ?? []).map(s => ({
+            email: s.email,
+            signedAt: s.signed_at ?? new Date().toISOString(),
+        }))
+
+        // Send completion email to the document sender
         await sendCompletionEmail({
             to: senderEmail,
             documentName: doc.file_name,
-            signers: (allSigners ?? []).map(s => ({
-                email: s.email,
-                signedAt: s.signed_at ?? new Date().toISOString(),
-            })),
+            signers: completionSigners,
             downloadUrl,
         })
+
+        // Also send completion email to ALL signers (they are all participants)
+        for (const s of (allSigners ?? [])) {
+            try {
+                await sendCompletionEmail({
+                    to: s.email,
+                    documentName: doc.file_name,
+                    signers: completionSigners,
+                    downloadUrl,
+                })
+            } catch (compErr) {
+                console.error(`[submit] Completion email to ${s.email} failed:`, compErr)
+            }
+        }
 
         await logEvent({
             documentId: doc.id,

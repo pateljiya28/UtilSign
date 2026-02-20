@@ -292,3 +292,144 @@ export async function sendDeclinedEmail({
 </html>`,
   })
 }
+
+//  6. Broadcast Notification (non-first signers on initial send) 
+export async function sendBroadcastNotification({
+  to,
+  documentName,
+  senderName,
+  currentSignerEmail,
+  signerPosition,
+  totalSigners,
+}: {
+  to: string
+  documentName: string
+  senderName: string
+  currentSignerEmail: string
+  signerPosition: number
+  totalSigners: number
+}) {
+  const waitCount = signerPosition - 1
+  return sendMail({
+    to,
+    subject: `You are signer #${signerPosition} on "${documentName}"`,
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Document Sent for Signing</title></head>
+<body style="margin:0;padding:0;background:#f8faff;font-family:Inter,system-ui,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8faff;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(99,102,241,0.08);">
+        <tr><td style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 40px;text-align:center;">
+          <h1 style="color:#fff;font-size:22px;font-weight:700;margin:0;">Document Sent for Signing</h1>
+          <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:13px;">You are in the signing queue</p>
+        </td></tr>
+        <tr><td style="padding:36px;">
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong style="color:#1e1b4b;">${senderName}</strong> has sent <strong>${documentName}</strong> for signing.</p>
+          <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:16px 20px;margin:0 0 20px;">
+            <p style="color:#92400e;font-size:14px;font-weight:600;margin:0 0 6px;">Your position: Signer #${signerPosition} of ${totalSigners}</p>
+            <p style="color:#92400e;font-size:13px;margin:0;">${waitCount === 1 ? "1 person signs" : waitCount + " people sign"} before you. <strong>${currentSignerEmail}</strong> is currently signing. You will receive a link when it is your turn.</p>
+          </div>
+          <p style="color:#6b7280;font-size:13px;text-align:center;margin:0;">No action is needed right now.</p>
+        </td></tr>
+        <tr><td style="background:#f8faff;padding:16px 40px;text-align:center;border-top:1px solid #e5e7eb;"><p style="color:#9ca3af;font-size:12px;margin:0;">Powered by <a href="${getAppUrl()}" style="color:#6366f1;">UtilSign</a></p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+  })
+}
+
+//  7. Progress Update (all observers after each signing) 
+export async function sendProgressUpdate({
+  to,
+  documentName,
+  justSignedEmail,
+  nextSignerEmail,
+  remainingCount,
+}: {
+  to: string
+  documentName: string
+  justSignedEmail: string
+  nextSignerEmail: string
+  remainingCount: number
+}) {
+  return sendMail({
+    to,
+    subject: `Signing update: ${justSignedEmail} has signed "${documentName}"`,
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Signing Progress Update</title></head>
+<body style="margin:0;padding:0;background:#f8faff;font-family:Inter,system-ui,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8faff;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(99,102,241,0.08);">
+        <tr><td style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 40px;text-align:center;">
+          <h1 style="color:#fff;font-size:22px;font-weight:700;margin:0;">Signing Progress Update</h1>
+        </td></tr>
+        <tr><td style="padding:36px;">
+          <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:16px 20px;margin:0 0 20px;">
+            <p style="color:#166534;font-size:14px;font-weight:600;margin:0 0 4px;">Just Signed</p>
+            <p style="color:#166534;font-size:14px;margin:0;">${justSignedEmail} has completed their signature on <strong>${documentName}</strong>.</p>
+          </div>
+          <div style="background:#f0f4ff;border-left:4px solid #6366f1;border-radius:0 8px 8px 0;padding:16px 20px;margin:0 0 20px;">
+            <p style="color:#312e81;font-size:14px;font-weight:600;margin:0 0 4px;">Up Next</p>
+            <p style="color:#4338ca;font-size:14px;margin:0;">${nextSignerEmail} is now signing.</p>
+          </div>
+          <p style="color:#6b7280;font-size:13px;text-align:center;margin:0;">${remainingCount === 1 ? "1 signature" : remainingCount + " signatures"} remaining. You will be notified when it is your turn.</p>
+        </td></tr>
+        <tr><td style="background:#f8faff;padding:16px 40px;text-align:center;border-top:1px solid #e5e7eb;"><p style="color:#9ca3af;font-size:12px;margin:0;">Powered by <a href="${getAppUrl()}" style="color:#6366f1;">UtilSign</a></p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+  })
+}
+
+//  8. Your Turn Notification (next signer with queue context) 
+export async function sendYourTurnNotification({
+  to,
+  documentName,
+  justSignedEmail,
+  signLink,
+  queuePosition,
+  totalSigners,
+}: {
+  to: string
+  documentName: string
+  justSignedEmail: string
+  signLink: string
+  queuePosition: number
+  totalSigners: number
+}) {
+  return sendMail({
+    to,
+    subject: `It is your turn to sign "${documentName}"`,
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Your Turn to Sign</title></head>
+<body style="margin:0;padding:0;background:#f8faff;font-family:Inter,system-ui,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8faff;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(99,102,241,0.08);">
+        <tr><td style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 40px;text-align:center;">
+          <h1 style="color:#fff;font-size:22px;font-weight:700;margin:0;">Your Turn to Sign!</h1>
+          <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:13px;">Signer #${queuePosition} of ${totalSigners}</p>
+        </td></tr>
+        <tr><td style="padding:36px;">
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong style="color:#1e1b4b;">${justSignedEmail}</strong> has completed their signature. You are now up to sign:</p>
+          <div style="background:#f0f4ff;border-left:4px solid #6366f1;border-radius:0 8px 8px 0;padding:16px 20px;margin:0 0 24px;">
+            <p style="color:#312e81;font-size:15px;font-weight:600;margin:0;">${documentName}</p>
+          </div>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${signLink}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;font-size:16px;font-weight:600;text-decoration:none;padding:14px 40px;border-radius:8px;">Review &amp; Sign Now</a>
+          </div>
+          <p style="color:#9ca3af;font-size:12px;text-align:center;margin:0;">This link is personal to you. Do not share it. Expires in 7 days.</p>
+        </td></tr>
+        <tr><td style="background:#f8faff;padding:16px 40px;text-align:center;border-top:1px solid #e5e7eb;"><p style="color:#9ca3af;font-size:12px;margin:0;">Powered by <a href="${getAppUrl()}" style="color:#6366f1;">UtilSign</a></p></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+  })
+}

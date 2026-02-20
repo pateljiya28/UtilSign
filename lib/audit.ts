@@ -5,6 +5,8 @@ export type AuditEventType =
     | 'document_sent'
     | 'email_delivered'
     | 'email_failed'
+    | 'broadcast_sent'
+    | 'progress_notification_sent'
     | 'link_opened'
     | 'otp_sent'
     | 'otp_verified'
