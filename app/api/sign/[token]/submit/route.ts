@@ -142,6 +142,13 @@ export async function POST(
             }
         }
 
+        // ── Validate ALL placeholders are signed (no partial submissions) ─────────
+        if (body.signatures.length !== placeholders.length) {
+            return NextResponse.json({
+                error: `You must sign all ${placeholders.length} field(s). You signed ${body.signatures.length}.`,
+            }, { status: 400 })
+        }
+
         // ── Insert signature rows ─────────────────────────────────────────────────
         const signatureRows = body.signatures.map(sig => ({
             signer_id: signer.id,
@@ -237,18 +244,11 @@ export async function POST(
             const nextToken = await signMagicToken({ signerId: next.id, documentId: doc.id })
             const nextTokenHash = await hashTokenStr(nextToken)
 
+            // Commit DB state FIRST — chain is advanced regardless of email outcome
             await admin
                 .from('signers')
                 .update({ status: 'awaiting_turn', token_hash: nextTokenHash })
                 .eq('id', next.id)
-
-            const nextSignLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${nextToken}`
-            await sendNextSignerEmail({
-                to: next.email,
-                previousSignerName: signer.email,
-                documentName: doc.file_name,
-                signLink: nextSignLink,
-            })
 
             await logEvent({
                 documentId: doc.id,
@@ -257,13 +257,33 @@ export async function POST(
                 event: 'next_signer_notified',
                 metadata: { to: next.email },
             })
-            await logEvent({
-                documentId: doc.id,
-                signerId: next.id,
-                actorEmail: senderEmail,
-                event: 'email_delivered',
-                metadata: { to: next.email },
-            })
+
+            // Send email — don't let a Resend failure crash the chain
+            const nextSignLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${nextToken}`
+            try {
+                await sendNextSignerEmail({
+                    to: next.email,
+                    previousSignerName: signer.email,
+                    documentName: doc.file_name,
+                    signLink: nextSignLink,
+                })
+                await logEvent({
+                    documentId: doc.id,
+                    signerId: next.id,
+                    actorEmail: senderEmail,
+                    event: 'email_delivered',
+                    metadata: { to: next.email },
+                })
+            } catch (emailErr) {
+                // Log email failure but don't fail the signing chain
+                await logEvent({
+                    documentId: doc.id,
+                    signerId: next.id,
+                    actorEmail: senderEmail,
+                    event: 'email_failed',
+                    metadata: { to: next.email, error: emailErr instanceof Error ? emailErr.message : 'Unknown' },
+                })
+            }
 
             return NextResponse.json({ success: true, final: false })
         }

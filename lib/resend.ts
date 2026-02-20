@@ -1,12 +1,28 @@
-import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
 
-let _resend: Resend | null = null
-function getResend(): Resend {
-  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY!)
-  return _resend
+// ─── Gmail SMTP Transport ─────────────────────────────────────────────────────
+// Uses Gmail App Password for authentication. Works with any recipient.
+let _transporter: nodemailer.Transporter | null = null
+function getTransporter() {
+  if (!_transporter) {
+    _transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.SMTP_USER!,
+        pass: process.env.SMTP_PASS!,
+      },
+    })
+  }
+  return _transporter
 }
-const FROM = 'UtilSign <onboarding@resend.dev>'
+
+const FROM = `UtilSign <${process.env.SMTP_USER!}>`
 const getAppUrl = () => process.env.NEXT_PUBLIC_APP_URL!
+
+// ─── Helper: send an email via Gmail SMTP ─────────────────────────────────────
+async function sendMail({ to, subject, html }: { to: string; subject: string; html: string }) {
+  return getTransporter().sendMail({ from: FROM, to, subject, html })
+}
 
 // ─── 1. Signing Request Email ─────────────────────────────────────────────────
 export async function sendSigningRequest({
@@ -20,8 +36,7 @@ export async function sendSigningRequest({
   documentName: string
   signLink: string
 }) {
-  return getResend().emails.send({
-    from: FROM,
+  return sendMail({
     to,
     subject: `${senderName} has requested your signature on "${documentName}"`,
     html: `<!DOCTYPE html>
@@ -80,8 +95,7 @@ export async function sendOTPEmail({
   otp: string
   documentName: string
 }) {
-  return getResend().emails.send({
-    from: FROM,
+  return sendMail({
     to,
     subject: `Your UtilSign verification code: ${otp}`,
     html: `<!DOCTYPE html>
@@ -131,8 +145,7 @@ export async function sendNextSignerEmail({
   documentName: string
   signLink: string
 }) {
-  return getResend().emails.send({
-    from: FROM,
+  return sendMail({
     to,
     subject: `It's your turn to sign "${documentName}"`,
     html: `<!DOCTYPE html>
@@ -191,8 +204,7 @@ export async function sendCompletionEmail({
      </tr>`
   ).join('')
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendMail({
     to,
     subject: `"${documentName}" has been fully signed`,
     html: `<!DOCTYPE html>
@@ -244,8 +256,7 @@ export async function sendDeclinedEmail({
   documentName: string
   declinedAt: string
 }) {
-  return getResend().emails.send({
-    from: FROM,
+  return sendMail({
     to,
     subject: `"${documentName}" — signer declined`,
     html: `<!DOCTYPE html>

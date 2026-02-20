@@ -51,6 +51,7 @@ export default function NewDocumentPage() {
     const [placeholders, setPlaceholders] = useState<Placeholder[]>([])
     const [activePage, setActivePage] = useState(1)
     const [signerEmails, setSignerEmails] = useState<string[]>([''])
+    const [activeSignerIndex, setActiveSignerIndex] = useState(0)
     const pdfContainerRef = useRef<HTMLDivElement>(null)
 
     // Step 3: Signers assignment
@@ -147,7 +148,7 @@ export default function NewDocumentPage() {
         const heightPercent = Math.abs(dragCurrent.y - dragStart.y)
         if (widthPercent < 2 || heightPercent < 1) return
 
-        const currentEmail = signerEmails.find(e => e.trim() !== '') || ''
+        const currentEmail = signerEmails[activeSignerIndex]?.trim() || signerEmails.find(e => e.trim() !== '') || ''
         const newPh: Placeholder = {
             id: crypto.randomUUID(),
             pageNumber: activePage,
@@ -374,7 +375,10 @@ export default function NewDocumentPage() {
                                             }}
                                         />
                                         {signerEmails.length > 1 && (
-                                            <button onClick={() => setSignerEmails(prev => prev.filter((_, j) => j !== i))} className="text-red-400 text-xs hover:text-red-300">✕</button>
+                                            <button onClick={() => {
+                                                setSignerEmails(prev => prev.filter((_, j) => j !== i))
+                                                if (activeSignerIndex >= signerEmails.length - 1) setActiveSignerIndex(Math.max(0, signerEmails.length - 2))
+                                            }} className="text-red-400 text-xs hover:text-red-300">✕</button>
                                         )}
                                     </div>
                                 ))}
@@ -384,6 +388,34 @@ export default function NewDocumentPage() {
                                 >+ Add Signer</button>
                             </div>
                         </div>
+
+                        {/* Active signer selector — choose who you're drawing for */}
+                        {signerEmails.filter(e => e.trim() !== '').length > 1 && (
+                            <div className="card p-3 mb-4">
+                                <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Drawing placeholders for:</p>
+                                <div className="flex gap-2 flex-wrap">
+                                    {signerEmails.map((email, i) => {
+                                        if (!email.trim()) return null
+                                        const isActive = activeSignerIndex === i
+                                        return (
+                                            <button
+                                                key={i}
+                                                onClick={() => setActiveSignerIndex(i)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive
+                                                        ? 'border-white/30 text-white shadow-lg'
+                                                        : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                                                    }`}
+                                                style={isActive ? { background: SIGNER_COLORS[i % SIGNER_COLORS.length] + '33' } : {}}
+                                            >
+                                                <div className="w-2.5 h-2.5 rounded-full" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
+                                                {email}
+                                                {isActive && <span className="ml-1">✓</span>}
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Page navigation */}
                         {pdfPages.length > 1 && (

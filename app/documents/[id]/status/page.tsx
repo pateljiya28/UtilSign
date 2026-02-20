@@ -63,9 +63,16 @@ export default function DocumentStatusPage() {
 
     useEffect(() => {
         fetchStatus()
-        const interval = setInterval(fetchStatus, 10000) // Poll every 10s
+        const interval = setInterval(() => {
+            // Stop polling once document reaches a terminal state
+            if (doc && (doc.status === 'completed' || doc.status === 'cancelled')) {
+                clearInterval(interval)
+                return
+            }
+            fetchStatus()
+        }, 15000) // Poll every 15s while document is active
         return () => clearInterval(interval)
-    }, [documentId])
+    }, [documentId, doc?.status])
 
     if (loading) {
         return (

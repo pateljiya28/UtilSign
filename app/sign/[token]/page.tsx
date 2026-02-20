@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import SignatureModal from '@/components/SignatureModal'
 
@@ -38,6 +38,8 @@ export default function SignPage() {
     const [otpLoading, setOtpLoading] = useState(false)
     const [otpError, setOtpError] = useState('')
     const [countdown, setCountdown] = useState(600) // 10 minutes
+    const [resendCooldown, setResendCooldown] = useState(0) // seconds until resend allowed
+    const hasFiredRef = useRef(false) // prevent Strict Mode double-fire
 
     // Session (stored ONLY in React state)
     const [sessionToken, setSessionToken] = useState('')
@@ -55,6 +57,8 @@ export default function SignPage() {
 
     // ── Step 1: Validate token + send OTP ──────────────────────────────────────
     useEffect(() => {
+        if (hasFiredRef.current) return // Prevent Strict Mode double-fire
+        hasFiredRef.current = true
         const validate = async () => {
             try {
                 const res = await fetch(`/api/sign/${token}`)
@@ -69,6 +73,7 @@ export default function SignPage() {
                 setSignerEmail(data.signerEmail)
                 setState('otp')
                 setCountdown(600)
+                setResendCooldown(60) // 60s cooldown after initial send
             } catch {
                 setError('Failed to validate signing link.')
                 setState('error')
@@ -88,6 +93,7 @@ export default function SignPage() {
                 }
                 return prev - 1
             })
+            setResendCooldown(prev => Math.max(0, prev - 1))
         }, 1000)
         return () => clearInterval(timer)
     }, [state])
@@ -128,15 +134,20 @@ export default function SignPage() {
 
     // ── Resend OTP ─────────────────────────────────────────────────────────────
     const handleResendOTP = async () => {
+        if (resendCooldown > 0) return
         setOtp('')
         setOtpError('')
+        setOtpLoading(true)
         try {
             const res = await fetch(`/api/sign/${token}`)
             const data = await res.json()
             if (!res.ok) throw new Error(data.message)
             setCountdown(600)
+            setResendCooldown(60) // 60s cooldown after resend
         } catch {
             setOtpError('Failed to resend OTP.')
+        } finally {
+            setOtpLoading(false)
         }
     }
 
@@ -344,8 +355,12 @@ export default function SignPage() {
                             <span className="text-slate-500 text-xs">
                                 {countdown > 0 ? `Expires in ${formatTime(countdown)}` : 'Code expired'}
                             </span>
-                            <button onClick={handleResendOTP} className="text-brand-400 text-xs hover:text-brand-300 font-medium">
-                                Resend code
+                            <button
+                                onClick={handleResendOTP}
+                                disabled={resendCooldown > 0 || otpLoading}
+                                className={`text-xs font-medium transition-colors ${resendCooldown > 0 || otpLoading ? 'text-slate-600 cursor-not-allowed' : 'text-brand-400 hover:text-brand-300'}`}
+                            >
+                                {otpLoading ? 'Sending…' : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
                             </button>
                         </div>
 
@@ -407,8 +422,8 @@ export default function SignPage() {
                                         <div
                                             key={p.id}
                                             className={`absolute cursor-pointer transition-all ${signed
-                                                    ? 'border-2 border-emerald-500 bg-emerald-500/10'
-                                                    : 'border-2 border-brand-400 bg-brand-500/10 hover:bg-brand-500/20 animate-pulse-slow'
+                                                ? 'border-2 border-emerald-500 bg-emerald-500/10'
+                                                : 'border-2 border-brand-400 bg-brand-500/10 hover:bg-brand-500/20 animate-pulse-slow'
                                                 }`}
                                             style={{
                                                 left: `${p.x_percent}%`,

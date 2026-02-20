@@ -1,5 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, createSupabaseAdminClient } from '@/lib/supabase'
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const EVENT_LABELS: Record<string, string> = {
+    document_created: 'Document Created',
+    document_sent: 'Document Sent',
+    email_delivered: 'Email Delivered',
+    email_failed: 'Email Failed',
+    link_opened: 'Signing Link Opened',
+    otp_sent: 'OTP Sent',
+    otp_verified: 'OTP Verified',
+    otp_failed: 'OTP Failed',
+    otp_locked: 'OTP Locked',
+    placeholder_viewed: 'Placeholders Viewed',
+    signature_submitted: 'Signature Submitted',
+    pdf_burned: 'Signatures Applied to PDF',
+    signer_declined: 'Signer Declined',
+    next_signer_notified: 'Next Signer Notified',
+    document_completed: 'Document Completed',
+    document_downloaded: 'Document Downloaded',
+}
+
+function formatDate(iso: string): string {
+    const d = new Date(iso)
+    return d.toLocaleString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: true,
+    })
+}
+
+// Draws wrapped text and returns the new Y position
+function drawWrappedText(
+    page: ReturnType<PDFDocument['addPage']>,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number,
+    font: Awaited<ReturnType<PDFDocument['embedFont']>>,
+    fontSize: number,
+    color: ReturnType<typeof rgb>
+): number {
+    const words = text.split(' ')
+    let line = ''
+    for (const word of words) {
+        const test = line ? `${line} ${word}` : word
+        const w = font.widthOfTextAtSize(test, fontSize)
+        if (w > maxWidth && line) {
+            page.drawText(line, { x, y, font, size: fontSize, color })
+            y -= lineHeight
+            line = word
+        } else {
+            line = test
+        }
+    }
+    if (line) {
+        page.drawText(line, { x, y, font, size: fontSize, color })
+        y -= lineHeight
+    }
+    return y
+}
 
 export async function GET(
     req: NextRequest,
@@ -20,7 +82,7 @@ export async function GET(
         // ── Verify document ownership ──────────────────────────────────────────
         const { data: doc, error: docError } = await admin
             .from('documents')
-            .select('id, file_name, file_path, sender_id')
+            .select('id, file_name, file_path, sender_id, created_at')
             .eq('id', documentId)
             .eq('sender_id', user.id)
             .single()
@@ -38,16 +100,182 @@ export async function GET(
             return NextResponse.json({ error: 'Failed to download file' }, { status: 500 })
         }
 
-        // ── Return PDF as attachment ────────────────────────────────────────────
-        const arrayBuffer = await fileData.arrayBuffer()
+        // ── Fetch audit logs ────────────────────────────────────────────────────
+        const { data: logs } = await admin
+            .from('audit_logs')
+            .select('actor_email, event_type, metadata, created_at')
+            .eq('document_id', documentId)
+            .order('created_at', { ascending: true })
+
+        // ── Fetch signers ───────────────────────────────────────────────────────
+        const { data: signers } = await admin
+            .from('signers')
+            .select('email, priority, status, signed_at')
+            .eq('document_id', documentId)
+            .order('priority', { ascending: true })
+
+        // ── Load the signed PDF ─────────────────────────────────────────────────
+        const srcBytes = await fileData.arrayBuffer()
+        const pdfDoc = await PDFDocument.load(srcBytes)
+
+        // ── Embed fonts ─────────────────────────────────────────────────────────
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+        const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica)
+
+        // ── Page layout constants ───────────────────────────────────────────────
+        const PAGE_W = 595   // A4 width  (pt)
+        const PAGE_H = 842   // A4 height (pt)
+        const MARGIN = 48
+        const CONTENT_W = PAGE_W - MARGIN * 2
+
+        // Accent colours
+        const INDIGO = rgb(0.31, 0.27, 0.90)   // #4f46e5
+        const INDIGOlt = rgb(0.94, 0.94, 1.00)   // background stripe
+        const DARK = rgb(0.12, 0.10, 0.29)   // #1e1b4b
+        const GREY = rgb(0.29, 0.34, 0.42)   // #4b5563
+        const LGREY = rgb(0.60, 0.63, 0.67)   // #9ca3af
+        const WHITE = rgb(1, 1, 1)
+        const GREEN = rgb(0.04, 0.60, 0.42)   // #059669
+        const RED = rgb(0.86, 0.15, 0.15)
+
+        // ── Add audit page ──────────────────────────────────────────────────────
+        const page = pdfDoc.addPage([PAGE_W, PAGE_H])
+
+        let y = PAGE_H - MARGIN
+
+        // ────────── Header banner ──────────────────────────────────────────────
+        page.drawRectangle({
+            x: 0, y: PAGE_H - 70,
+            width: PAGE_W, height: 70,
+            color: INDIGO,
+        })
+        page.drawText('UtilSign  Audit Trail', {
+            x: MARGIN, y: PAGE_H - 34,
+            font: fontBold, size: 17, color: WHITE,
+        })
+        page.drawText('Certificate of Completion & Event Log', {
+            x: MARGIN, y: PAGE_H - 54,
+            font: fontRegular, size: 10, color: rgb(0.8, 0.8, 1),
+        })
+
+        y = PAGE_H - 90
+
+        // ────────── Document metadata block ───────────────────────────────────
+        page.drawRectangle({
+            x: MARGIN, y: y - 54,
+            width: CONTENT_W, height: 60,
+            color: INDIGOlt,
+            borderColor: INDIGO,
+            borderWidth: 0.5,
+        })
+        page.drawText('Document', { x: MARGIN + 12, y: y - 12, font: fontBold, size: 9, color: INDIGO })
+        page.drawText(doc.file_name, { x: MARGIN + 12, y: y - 26, font: fontBold, size: 12, color: DARK })
+        page.drawText(`Document ID: ${doc.id}`, { x: MARGIN + 12, y: y - 42, font: fontRegular, size: 8, color: LGREY })
+
+        y -= 70
+
+        // ────────── Signers summary table ─────────────────────────────────────
+        if (signers && signers.length > 0) {
+            page.drawText('SIGNERS', { x: MARGIN, y, font: fontBold, size: 9, color: INDIGO })
+            y -= 14
+
+            // Header row
+            page.drawRectangle({ x: MARGIN, y: y - 16, width: CONTENT_W, height: 18, color: INDIGO })
+            page.drawText('#', { x: MARGIN + 6, y: y - 12, font: fontBold, size: 8, color: WHITE })
+            page.drawText('Email', { x: MARGIN + 24, y: y - 12, font: fontBold, size: 8, color: WHITE })
+            page.drawText('Status', { x: MARGIN + 280, y: y - 12, font: fontBold, size: 8, color: WHITE })
+            page.drawText('Signed At', { x: MARGIN + 365, y: y - 12, font: fontBold, size: 8, color: WHITE })
+            y -= 18
+
+            for (let i = 0; i < signers.length; i++) {
+                const s = signers[i]
+                const rowColor = i % 2 === 0 ? WHITE : INDIGOlt
+                page.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowColor })
+                page.drawText(String(s.priority), { x: MARGIN + 6, y: y - 10, font: fontRegular, size: 8, color: GREY })
+                page.drawText(s.email, { x: MARGIN + 24, y: y - 10, font: fontRegular, size: 8, color: DARK })
+                const statusColor = s.status === 'signed' ? GREEN : s.status === 'declined' ? RED : GREY
+                page.drawText(s.status.toUpperCase(), { x: MARGIN + 280, y: y - 10, font: fontBold, size: 7, color: statusColor })
+                page.drawText(s.signed_at ? formatDate(s.signed_at) : '-', {
+                    x: MARGIN + 365, y: y - 10, font: fontRegular, size: 7, color: GREY,
+                })
+                y -= 16
+            }
+            y -= 10
+        }
+
+        // ────────── Audit events ───────────────────────────────────────────────
+        page.drawText('AUDIT LOG', { x: MARGIN, y, font: fontBold, size: 9, color: INDIGO })
+        y -= 14
+
+        // Table header
+        page.drawRectangle({ x: MARGIN, y: y - 16, width: CONTENT_W, height: 18, color: INDIGO })
+        page.drawText('Timestamp', { x: MARGIN + 6, y: y - 12, font: fontBold, size: 8, color: WHITE })
+        page.drawText('Event', { x: MARGIN + 145, y: y - 12, font: fontBold, size: 8, color: WHITE })
+        page.drawText('Actor', { x: MARGIN + 310, y: y - 12, font: fontBold, size: 8, color: WHITE })
+        y -= 18
+
+        const auditRows = logs ?? []
+        for (let i = 0; i < auditRows.length; i++) {
+            const log = auditRows[i]
+
+            // Start a new page if we're running low
+            if (y < MARGIN + 40) {
+                const overflow = pdfDoc.addPage([PAGE_W, PAGE_H])
+                // carry over header on continuation pages
+                overflow.drawRectangle({ x: 0, y: PAGE_H - 30, width: PAGE_W, height: 30, color: INDIGO })
+                overflow.drawText('UtilSign Audit Trail (continued)', {
+                    x: MARGIN, y: PAGE_H - 20, font: fontBold, size: 10, color: WHITE,
+                })
+                // Re-bind page variable workaround: mutate y for next iteration
+                // (pdf-lib doesn't have a concept of "current page" so we draw on this new page directly)
+                // Add header row again
+                overflow.drawRectangle({ x: MARGIN, y: PAGE_H - 50, width: CONTENT_W, height: 18, color: INDIGO })
+                overflow.drawText('Timestamp', { x: MARGIN + 6, y: PAGE_H - 64, font: fontBold, size: 8, color: WHITE })
+                overflow.drawText('Event', { x: MARGIN + 145, y: PAGE_H - 64, font: fontBold, size: 8, color: WHITE })
+                overflow.drawText('Actor', { x: MARGIN + 310, y: PAGE_H - 64, font: fontBold, size: 8, color: WHITE })
+                y = PAGE_H - 68
+                // Draw remaining rows on new page
+                for (let j = i; j < auditRows.length; j++) {
+                    const l = auditRows[j]
+                    const rowColor2 = j % 2 === 0 ? WHITE : INDIGOlt
+                    overflow.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowColor2 })
+                    overflow.drawText(formatDate(l.created_at), { x: MARGIN + 6, y: y - 10, font: fontRegular, size: 7, color: GREY })
+                    overflow.drawText(EVENT_LABELS[l.event_type] ?? l.event_type, { x: MARGIN + 145, y: y - 10, font: fontBold, size: 7.5, color: DARK })
+                    overflow.drawText(l.actor_email ?? '-', { x: MARGIN + 310, y: y - 10, font: fontRegular, size: 7, color: GREY })
+                    y -= 16
+                    if (y < MARGIN + 24 && j < auditRows.length - 1) break
+                }
+                break // done
+            }
+
+            const rowColor = i % 2 === 0 ? WHITE : INDIGOlt
+            page.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowColor })
+            page.drawText(formatDate(log.created_at), { x: MARGIN + 6, y: y - 10, font: fontRegular, size: 7, color: GREY })
+            page.drawText(EVENT_LABELS[log.event_type] ?? log.event_type, { x: MARGIN + 145, y: y - 10, font: fontBold, size: 7.5, color: DARK })
+            page.drawText(log.actor_email ?? '-', { x: MARGIN + 310, y: y - 10, font: fontRegular, size: 7, color: GREY })
+            y -= 16
+        }
+
+        // ────────── Footer bar ─────────────────────────────────────────────────
+        page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: 28, color: INDIGOlt })
+        page.drawText(
+            `Generated by UtilSign • ${new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`,
+            { x: MARGIN, y: 10, font: fontRegular, size: 8, color: LGREY }
+        )
+        page.drawText('This document is legally binding.', {
+            x: PAGE_W - MARGIN - 170, y: 10, font: fontRegular, size: 8, color: LGREY,
+        })
+
+        // ── Serialize the final PDF ─────────────────────────────────────────────
+        const finalBytes = await pdfDoc.save()
         const safeName = doc.file_name.replace(/[^a-zA-Z0-9._-]/g, '_')
 
-        return new NextResponse(arrayBuffer, {
+        return new NextResponse(finalBytes.buffer as ArrayBuffer, {
             status: 200,
             headers: {
                 'Content-Type': 'application/pdf',
                 'Content-Disposition': `attachment; filename="signed_${safeName}"`,
-                'Content-Length': String(arrayBuffer.byteLength),
+                'Content-Length': String(finalBytes.byteLength),
             },
         })
     } catch (err) {

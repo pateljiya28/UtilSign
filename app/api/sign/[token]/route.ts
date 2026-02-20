@@ -81,6 +81,25 @@ export async function GET(
         })
 
         // ── Generate OTP, store hash, send email ──────────────────────────────────
+        // Rate limit: check if an unused OTP was sent in the last 30 seconds
+        const { data: recentOtp } = await admin
+            .from('otp_records')
+            .select('created_at')
+            .eq('signer_id', signer.id)
+            .eq('used', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+        const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString()
+        if (recentOtp && recentOtp.created_at > thirtySecondsAgo) {
+            // OTP already sent recently — don't send another
+            return NextResponse.json({
+                documentName: doc?.file_name ?? 'Document',
+                signerEmail: signer.email,
+            })
+        }
+
         const otp = generateOTP()
         const otpHash = await hashOTP(otp)
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
