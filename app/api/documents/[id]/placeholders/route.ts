@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient, createSupabaseAdminClient } from '@/lib/supabase'
 
 interface PlaceholderInput {
+    id: string
     pageNumber: number
     xPercent: number
     yPercent: number
@@ -48,6 +49,7 @@ export async function POST(
         await admin.from('placeholders').delete().eq('document_id', documentId)
 
         const rows = body.placeholders.map((p) => ({
+            id: p.id, // Use client-provided UUID
             document_id: documentId,
             page_number: p.pageNumber,
             x_percent: p.xPercent,

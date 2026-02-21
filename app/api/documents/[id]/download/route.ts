@@ -204,6 +204,32 @@ export async function GET(
         }
 
         // ────────── Audit events ───────────────────────────────────────────────
+        // Event-type → row background colour
+        const ROW_COLORS: Record<string, ReturnType<typeof rgb>> = {
+            document_sent: rgb(0.88, 0.93, 1.00),  // light blue
+            email_delivered: rgb(0.88, 0.93, 1.00),
+            next_signer_notified: rgb(0.88, 0.93, 1.00),
+            broadcast_sent: rgb(0.88, 0.93, 1.00),
+
+            signature_submitted: rgb(0.88, 0.98, 0.92),  // light green
+            pdf_burned: rgb(0.88, 0.98, 0.92),
+            document_completed: rgb(0.88, 0.98, 0.92),
+            otp_verified: rgb(0.88, 0.98, 0.92),
+
+            link_opened: rgb(0.94, 0.94, 0.94),  // light grey
+            placeholder_viewed: rgb(0.94, 0.94, 0.94),
+            document_downloaded: rgb(0.94, 0.94, 0.94),
+            document_created: rgb(0.94, 0.94, 0.94),
+
+            otp_sent: rgb(1.00, 0.97, 0.88),  // light amber
+            otp_failed: rgb(1.00, 0.97, 0.88),
+            otp_locked: rgb(1.00, 0.97, 0.88),
+
+            signer_declined: rgb(1.00, 0.90, 0.90),  // light red
+            email_failed: rgb(1.00, 0.90, 0.90),
+        }
+        const getRowColor = (eventType: string) => ROW_COLORS[eventType] ?? INDIGOlt
+
         page.drawText('AUDIT LOG', { x: MARGIN, y, font: fontBold, size: 9, color: INDIGO })
         y -= 14
 
@@ -226,8 +252,6 @@ export async function GET(
                 overflow.drawText('UtilSign Audit Trail (continued)', {
                     x: MARGIN, y: PAGE_H - 20, font: fontBold, size: 10, color: WHITE,
                 })
-                // Re-bind page variable workaround: mutate y for next iteration
-                // (pdf-lib doesn't have a concept of "current page" so we draw on this new page directly)
                 // Add header row again
                 overflow.drawRectangle({ x: MARGIN, y: PAGE_H - 50, width: CONTENT_W, height: 18, color: INDIGO })
                 overflow.drawText('Timestamp', { x: MARGIN + 6, y: PAGE_H - 64, font: fontBold, size: 8, color: WHITE })
@@ -237,8 +261,8 @@ export async function GET(
                 // Draw remaining rows on new page
                 for (let j = i; j < auditRows.length; j++) {
                     const l = auditRows[j]
-                    const rowColor2 = j % 2 === 0 ? WHITE : INDIGOlt
-                    overflow.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowColor2 })
+                    const rowBg = getRowColor(l.event_type)
+                    overflow.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowBg })
                     overflow.drawText(formatDate(l.created_at), { x: MARGIN + 6, y: y - 10, font: fontRegular, size: 7, color: GREY })
                     overflow.drawText(EVENT_LABELS[l.event_type] ?? l.event_type, { x: MARGIN + 145, y: y - 10, font: fontBold, size: 7.5, color: DARK })
                     overflow.drawText(l.actor_email ?? '-', { x: MARGIN + 310, y: y - 10, font: fontRegular, size: 7, color: GREY })
@@ -248,8 +272,8 @@ export async function GET(
                 break // done
             }
 
-            const rowColor = i % 2 === 0 ? WHITE : INDIGOlt
-            page.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowColor })
+            const rowBg = getRowColor(log.event_type)
+            page.drawRectangle({ x: MARGIN, y: y - 14, width: CONTENT_W, height: 16, color: rowBg })
             page.drawText(formatDate(log.created_at), { x: MARGIN + 6, y: y - 10, font: fontRegular, size: 7, color: GREY })
             page.drawText(EVENT_LABELS[log.event_type] ?? log.event_type, { x: MARGIN + 145, y: y - 10, font: fontBold, size: 7.5, color: DARK })
             page.drawText(log.actor_email ?? '-', { x: MARGIN + 310, y: y - 10, font: fontRegular, size: 7, color: GREY })
