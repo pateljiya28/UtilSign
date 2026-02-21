@@ -90,12 +90,19 @@ export async function POST(
             .eq('id', firstSigner.id)
 
         const signLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${token}`
-        await sendSigningRequest({
-            to: firstSigner.email,
-            senderName: user.email ?? 'Document sender',
-            documentName: doc.file_name,
-            signLink,
-        })
+
+        // ── Check if sender IS the priority-1 signer ──────────────────────────
+        const senderIsFirstSigner = firstSigner.email.toLowerCase() === (user.email ?? '').toLowerCase()
+
+        if (!senderIsFirstSigner) {
+            // Standard flow: email the first signer
+            await sendSigningRequest({
+                to: firstSigner.email,
+                senderName: user.email ?? 'Document sender',
+                documentName: doc.file_name,
+                signLink,
+            })
+        }
 
         // ── Audit ─────────────────────────────────────────────────────────────────
         await logEvent({
@@ -104,13 +111,16 @@ export async function POST(
             event: 'document_sent',
             metadata: { signerCount: body.signers.length },
         })
-        await logEvent({
-            documentId,
-            signerId: firstSigner.id,
-            actorEmail: user.email ?? 'unknown',
-            event: 'email_delivered',
-            metadata: { to: firstSigner.email },
-        })
+
+        if (!senderIsFirstSigner) {
+            await logEvent({
+                documentId,
+                signerId: firstSigner.id,
+                actorEmail: user.email ?? 'unknown',
+                event: 'email_delivered',
+                metadata: { to: firstSigner.email },
+            })
+        }
 
         // ── Broadcast to all other signers ──────────────────────────────────────────
         const sortedSigners = insertedSigners.sort(
@@ -144,6 +154,11 @@ export async function POST(
                     metadata: { to: signer.email, reason: 'broadcast_failed' },
                 })
             }
+        }
+
+        // If sender is signer #1, redirect them to sign immediately
+        if (senderIsFirstSigner) {
+            return NextResponse.json({ success: true, redirectUrl: `/sign/${token}` })
         }
 
         return NextResponse.json({ success: true })

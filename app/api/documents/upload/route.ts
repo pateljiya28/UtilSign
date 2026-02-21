@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'File must be 10 MB or smaller' }, { status: 400 })
         }
 
+        // ── Document type (self_sign or request_sign) ────────────────────────────
+        const docType = (formData.get('type') as string) || 'request_sign'
+
         // ── Upload to Supabase Storage ────────────────────────────────────────────
         const admin = createSupabaseAdminClient()
         const fileId = crypto.randomUUID()
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
                 file_path: storagePath,
                 file_name: file.name,
                 status: 'draft',
+                type: docType,
             })
             .select('id')
             .single()

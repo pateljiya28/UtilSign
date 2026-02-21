@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS documents (
   file_name   TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT 'draft'
                 CHECK (status IN ('draft','sent','in_progress','completed','cancelled')),
+  type        TEXT NOT NULL DEFAULT 'request_sign'
+                CHECK (type IN ('self_sign','request_sign')),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
