@@ -8,68 +8,252 @@
   * {
     box-sizing: border-box;
   }
+
   html {
     scroll-behavior: smooth;
   }
+
   body {
     @apply bg-slate-950 text-slate-100 font-sans antialiased;
-    background-image: 
-      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.15), transparent);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent);
   }
 }
 
 @layer components {
+
   /* ── Buttons ──────────────────────────────────────────────────────────── */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           bg-gradient-to-r from-brand-600 to-brand-500 text-white font-semibold text-sm
-           shadow-lg shadow-brand-900/30 hover:from-brand-500 hover:to-brand-400
-           active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 text-white font-semibold text-sm shadow-lg shadow-brand-900/30 hover:from-brand-500 hover:to-brand-400 active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
+
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           bg-slate-800/80 border border-slate-700/60 text-slate-200 font-semibold text-sm
-           hover:bg-slate-700/80 hover:border-slate-600 active:scale-95 transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-200 font-semibold text-sm hover:bg-slate-700/80 hover:border-slate-600 active:scale-95 transition-all duration-200;
   }
+
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           bg-gradient-to-r from-red-600 to-rose-500 text-white font-semibold text-sm
-           shadow-lg shadow-red-900/30 hover:from-red-500 hover:to-rose-400
-           active:scale-95 transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-500 text-white font-semibold text-sm shadow-lg shadow-red-900/30 hover:from-red-500 hover:to-rose-400 active:scale-95 transition-all duration-200;
   }
+
   /* ── Cards ────────────────────────────────────────────────────────────── */
   .card {
     @apply bg-slate-900/60 border border-slate-800/60 rounded-2xl backdrop-blur-sm;
   }
+
   .card-hover {
     @apply card hover:border-slate-700 hover:bg-slate-900/80 transition-all duration-200;
   }
+
   /* ── Inputs ───────────────────────────────────────────────────────────── */
   .input {
-    @apply w-full px-4 py-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60
-           text-slate-100 placeholder:text-slate-500 text-sm
-           focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60
-           transition-all duration-200;
+    @apply w-full px-4 py-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-slate-100 placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/60 transition-all duration-200;
   }
+
   /* ── Labels ───────────────────────────────────────────────────────────── */
   .label {
     @apply block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5;
   }
+
   /* ── Status badges ────────────────────────────────────────────────────── */
   .badge {
     @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold;
   }
-  .badge-draft       { @apply badge bg-slate-700/60 text-slate-300; }
-  .badge-sent        { @apply badge bg-blue-500/20 text-blue-300 border border-blue-500/30; }
-  .badge-in-progress { @apply badge bg-amber-500/20 text-amber-300 border border-amber-500/30; }
-  .badge-completed   { @apply badge bg-emerald-500/20 text-emerald-300 border border-emerald-500/30; }
-  .badge-cancelled   { @apply badge bg-red-500/20 text-red-300 border border-red-500/30; }
-  .badge-pending     { @apply badge bg-slate-600/60 text-slate-400; }
-  .badge-awaiting    { @apply badge bg-amber-500/20 text-amber-300 border border-amber-500/30; }
-  .badge-signed      { @apply badge bg-emerald-500/20 text-emerald-300 border border-emerald-500/30; }
-  .badge-declined    { @apply badge bg-red-500/20 text-red-300 border border-red-500/30; }
+
+  .badge-draft {
+    @apply badge bg-slate-700/60 text-slate-300;
+  }
+
+  .badge-sent {
+    @apply badge bg-blue-500/20 text-blue-300 border border-blue-500/30;
+  }
+
+  .badge-in-progress {
+    @apply badge bg-amber-500/20 text-amber-300 border border-amber-500/30;
+  }
+
+  .badge-completed {
+    @apply badge bg-emerald-500/20 text-emerald-300 border border-emerald-500/30;
+  }
+
+  .badge-cancelled {
+    @apply badge bg-red-500/20 text-red-300 border border-red-500/30;
+  }
+
+  .badge-pending {
+    @apply badge bg-slate-600/60 text-slate-400;
+  }
+
+  .badge-awaiting {
+    @apply badge bg-amber-500/20 text-amber-300 border border-amber-500/30;
+  }
+
+  .badge-signed {
+    @apply badge bg-emerald-500/20 text-emerald-300 border border-emerald-500/30;
+  }
+
+  .badge-declined {
+    @apply badge bg-red-500/20 text-red-300 border border-red-500/30;
+  }
+
   /* ── Page header ──────────────────────────────────────────────────────── */
   .page-header {
     @apply border-b border-slate-800/60 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT MODE OVERRIDES
+   Applied when <html class="light"> is set
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+html.light body {
+  @apply bg-gray-50 text-gray-900;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.08), transparent);
+}
+
+/* ── Core text color overrides ───────────────────────────────────────────── */
+html.light .text-white {
+  color: #111827 !important;
+}
+
+html.light .text-slate-100 {
+  color: #1f2937 !important;
+}
+
+html.light .text-slate-200 {
+  color: #374151 !important;
+}
+
+html.light .text-slate-300 {
+  color: #4b5563 !important;
+}
+
+html.light .text-slate-400 {
+  color: #6b7280 !important;
+}
+
+html.light .text-slate-500 {
+  color: #9ca3af !important;
+}
+
+/* ── Background overrides ────────────────────────────────────────────────── */
+html.light .bg-slate-950 {
+  background-color: #f9fafb !important;
+}
+
+html.light .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-slate-800 {
+  background-color: #f3f4f6 !important;
+}
+
+html.light .bg-slate-700 {
+  background-color: #e5e7eb !important;
+}
+
+/* Fractional opacity backgrounds */
+html.light [class*="bg-slate-950/"] {
+  background-color: rgba(249, 250, 251, 0.95) !important;
+}
+
+html.light [class*="bg-slate-900/"] {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+
+html.light [class*="bg-slate-800/"] {
+  background-color: rgba(243, 244, 246, 0.7) !important;
+}
+
+html.light [class*="bg-slate-700/"] {
+  background-color: rgba(229, 231, 235, 0.6) !important;
+}
+
+/* ── Border overrides ────────────────────────────────────────────────────── */
+html.light [class*="border-slate-800"] {
+  border-color: rgba(209, 213, 219, 0.5) !important;
+}
+
+html.light [class*="border-slate-700"] {
+  border-color: rgba(209, 213, 219, 0.6) !important;
+}
+
+html.light [class*="border-slate-600"] {
+  border-color: rgba(156, 163, 175, 0.4) !important;
+}
+
+/* ── Component overrides ─────────────────────────────────────────────────── */
+html.light .card {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(209, 213, 219, 0.5) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+html.light .card-hover:hover {
+  background-color: rgba(255, 255, 255, 1) !important;
+  border-color: rgba(156, 163, 175, 0.5) !important;
+}
+
+html.light .input {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(209, 213, 219, 0.6) !important;
+  color: #111827 !important;
+}
+
+html.light .input::placeholder {
+  color: #9ca3af !important;
+}
+
+html.light .btn-secondary {
+  background-color: rgba(243, 244, 246, 0.9) !important;
+  border-color: rgba(209, 213, 219, 0.6) !important;
+  color: #374151 !important;
+}
+
+html.light .btn-secondary:hover {
+  background-color: rgba(229, 231, 235, 0.9) !important;
+}
+
+html.light .page-header {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(209, 213, 219, 0.4) !important;
+  backdrop-filter: blur(12px);
+}
+
+/* ── Badge light overrides ───────────────────────────────────────────────── */
+html.light .badge-draft {
+  background-color: rgba(243, 244, 246, 0.8) !important;
+  color: #6b7280 !important;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+html.light ::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ── Placeholder tooltips & hover overlays ───────────────────────────────── */
+html.light [class*="bg-brand-500/"] {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+/* ── Animation for theme toggle ──────────────────────────────────────────── */
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.card,
+.input,
+.btn-secondary,
+.page-header {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }

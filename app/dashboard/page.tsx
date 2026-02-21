@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
     Shield, PenTool, Send, FileText, CheckCircle, Clock,
-    Plus, History, ArrowRight, Filter, X
+    Plus, History, ArrowRight, Filter, X, LogOut
 } from 'lucide-react'
+import ThemeToggle from '@/components/ThemeToggle'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -36,9 +37,9 @@ function StatusBadge({ status }: { status: string }) {
     return (
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${styles[status] ?? 'bg-slate-700/60 text-slate-400'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${status === 'completed' ? 'bg-emerald-400' :
-                    status === 'in_progress' ? 'bg-amber-400 animate-pulse' :
-                        status === 'sent' ? 'bg-blue-400' :
-                            status === 'cancelled' ? 'bg-red-400' : 'bg-slate-500'
+                status === 'in_progress' ? 'bg-amber-400 animate-pulse' :
+                    status === 'sent' ? 'bg-blue-400' :
+                        status === 'cancelled' ? 'bg-red-400' : 'bg-slate-500'
                 }`} />
             {labels[status] ?? status}
         </span>
@@ -49,8 +50,8 @@ function TypeBadge({ type }: { type: string }) {
     const isSelf = type === 'self_sign'
     return (
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${isSelf
-                ? 'bg-violet-500/15 text-violet-300 border border-violet-500/25'
-                : 'bg-sky-500/15 text-sky-300 border border-sky-500/25'
+            ? 'bg-violet-500/15 text-violet-300 border border-violet-500/25'
+            : 'bg-sky-500/15 text-sky-300 border border-sky-500/25'
             }`}>
             {isSelf ? <><PenTool className="w-3 h-3" /> Self</> : <><Send className="w-3 h-3" /> Request</>}
         </span>
@@ -100,6 +101,24 @@ export default function DashboardPage() {
     // Navigation state: 'new' shows entry-point cards, 'history' shows doc list
     const [activeTab, setActiveTab] = useState<'new' | 'history'>('new')
     const [historyFilter, setHistoryFilter] = useState<'all' | 'self' | 'request'>('all')
+    const [profileOpen, setProfileOpen] = useState(false)
+    const profileRef = useRef<HTMLDivElement>(null)
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+                setProfileOpen(false)
+            }
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [])
+
+    const handleSignOut = async () => {
+        await supabase.auth.signOut()
+        router.push('/auth/login')
+    }
 
     // Fetch user + documents
     useEffect(() => {
@@ -150,8 +169,8 @@ export default function DashboardPage() {
                         <button
                             onClick={() => setActiveTab('new')}
                             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${activeTab === 'new'
-                                    ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/40'
-                                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/40'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                 }`}
                         >
                             <Plus className="w-4 h-4" />
@@ -160,8 +179,8 @@ export default function DashboardPage() {
                         <button
                             onClick={() => setActiveTab('history')}
                             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${activeTab === 'history'
-                                    ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/40'
-                                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/40'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                 }`}
                         >
                             <History className="w-4 h-4" />
@@ -171,8 +190,29 @@ export default function DashboardPage() {
 
                     <div className="flex items-center gap-3">
                         <span className="text-slate-400 text-sm hidden sm:block">{userEmail}</span>
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                            {userEmail?.charAt(0).toUpperCase()}
+                        <ThemeToggle />
+                        <div className="relative" ref={profileRef}>
+                            <button
+                                onClick={() => setProfileOpen(prev => !prev)}
+                                className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center text-white text-sm font-bold shadow-lg hover:shadow-brand-500/40 transition-shadow cursor-pointer"
+                            >
+                                {userEmail?.charAt(0).toUpperCase()}
+                            </button>
+                            {profileOpen && (
+                                <div className="absolute right-0 mt-2 w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl py-2 animate-fade-in z-50">
+                                    <div className="px-4 py-2 border-b border-slate-800">
+                                        <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Signed in as</p>
+                                        <p className="text-sm text-white truncate mt-0.5">{userEmail}</p>
+                                    </div>
+                                    <button
+                                        onClick={handleSignOut}
+                                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                                    >
+                                        <LogOut className="w-4 h-4" />
+                                        Sign Out
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -286,8 +326,8 @@ export default function DashboardPage() {
                                         key={tab.key}
                                         onClick={() => setHistoryFilter(tab.key)}
                                         className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 flex items-center gap-2 ${historyFilter === tab.key
-                                                ? 'bg-slate-700 text-white shadow-md'
-                                                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
+                                            ? 'bg-slate-700 text-white shadow-md'
+                                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
                                             }`}
                                     >
                                         {tab.label}
@@ -331,8 +371,8 @@ export default function DashboardPage() {
                                     >
                                         <div className="flex items-center gap-3.5 min-w-0">
                                             <div className={`h-10 w-10 shrink-0 flex items-center justify-center rounded-xl transition-all duration-200 ${doc.type === 'self_sign'
-                                                    ? 'bg-violet-600/10 border border-violet-500/20 group-hover:bg-violet-600/20'
-                                                    : 'bg-sky-600/10 border border-sky-500/20 group-hover:bg-sky-600/20'
+                                                ? 'bg-violet-600/10 border border-violet-500/20 group-hover:bg-violet-600/20'
+                                                : 'bg-sky-600/10 border border-sky-500/20 group-hover:bg-sky-600/20'
                                                 }`}>
                                                 {doc.type === 'self_sign'
                                                     ? <PenTool className="w-4 h-4 text-violet-400" />

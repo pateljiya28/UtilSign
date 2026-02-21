@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import SignatureModal from '@/components/SignatureModal'
+import ThemeToggle from '@/components/ThemeToggle'
 import {
     ArrowLeft, PenTool, Send, Upload, FileText, X, Check,
     ChevronUp, ChevronDown, Info, Plus, Trash2, GripVertical
@@ -416,6 +417,7 @@ export default function NewDocumentPage() {
                             ))}
                         </div>
                     )}
+                    <ThemeToggle />
                 </div>
             </header>
 
@@ -551,68 +553,74 @@ export default function NewDocumentPage() {
                             )}
 
                             {/* Active signer selector (request mode only) */}
-                            {!isSelfSign && signerEmails.filter(e => e.trim() !== '').length > 1 && (
-                                <div className="card p-3">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Drawing for:</p>
-                                    <div className="space-y-1">
-                                        {signerEmails.map((email, i) => {
-                                            if (!email.trim()) return null
-                                            const isActive = activeSignerIndex === i
-                                            return (
-                                                <button
-                                                    key={i}
-                                                    onClick={() => setActiveSignerIndex(i)}
-                                                    className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive
-                                                        ? 'border-white/30 text-white shadow-lg'
-                                                        : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-300'
-                                                        }`}
-                                                    style={isActive ? { background: SIGNER_COLORS[i % SIGNER_COLORS.length] + '33' } : {}}
-                                                >
-                                                    <div className="w-2 h-2 rounded-full" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
-                                                    <span className="truncate">{email}</span>
-                                                    {isActive && <Check className="w-3 h-3 ml-auto shrink-0" />}
-                                                </button>
-                                            )
-                                        })}
+                            {
+                                !isSelfSign && signerEmails.filter(e => e.trim() !== '').length > 1 && (
+                                    <div className="card p-3">
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Drawing for:</p>
+                                        <div className="space-y-1">
+                                            {signerEmails.map((email, i) => {
+                                                if (!email.trim()) return null
+                                                const isActive = activeSignerIndex === i
+                                                return (
+                                                    <button
+                                                        key={i}
+                                                        onClick={() => setActiveSignerIndex(i)}
+                                                        className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive
+                                                            ? 'border-white/30 text-white shadow-lg'
+                                                            : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                                                            }`}
+                                                        style={isActive ? { background: SIGNER_COLORS[i % SIGNER_COLORS.length] + '33' } : {}}
+                                                    >
+                                                        <div className="w-2 h-2 rounded-full" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
+                                                        <span className="truncate">{email}</span>
+                                                        {isActive && <Check className="w-3 h-3 ml-auto shrink-0" />}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )
+                            }
 
                             {/* Page navigation */}
-                            {pdfPages.length > 1 && (
-                                <div className="card p-3">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Pages</p>
-                                    <div className="flex flex-wrap gap-1">
-                                        {pdfPages.map((_, i) => (
-                                            <button
-                                                key={i}
-                                                onClick={() => setActivePage(i + 1)}
-                                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                                            >{i + 1}</button>
-                                        ))}
+                            {
+                                pdfPages.length > 1 && (
+                                    <div className="card p-3">
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Pages</p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {pdfPages.map((_, i) => (
+                                                <button
+                                                    key={i}
+                                                    onClick={() => setActivePage(i + 1)}
+                                                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                                >{i + 1}</button>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )
+                            }
 
                             {/* Placeholder list */}
-                            {placeholders.length > 0 && (
-                                <div className="card p-3">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                                        {placeholders.length} Placeholder{placeholders.length !== 1 ? 's' : ''}
-                                    </p>
-                                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                                        {placeholders.map(p => (
-                                            <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-slate-300 py-0.5">
-                                                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
-                                                <span className="truncate flex-1">P{p.pageNumber} — {p.assignedSignerEmail || 'unassigned'}</span>
-                                                <button onClick={() => removePlaceholder(p.id)} className="text-red-400 hover:text-red-300 shrink-0">
-                                                    <Trash2 className="w-3 h-3" />
-                                                </button>
-                                            </div>
-                                        ))}
+                            {
+                                placeholders.length > 0 && (
+                                    <div className="card p-3">
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                                            {placeholders.length} Placeholder{placeholders.length !== 1 ? 's' : ''}
+                                        </p>
+                                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                                            {placeholders.map(p => (
+                                                <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-slate-300 py-0.5">
+                                                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
+                                                    <span className="truncate flex-1">P{p.pageNumber} — {p.assignedSignerEmail || 'unassigned'}</span>
+                                                    <button onClick={() => removePlaceholder(p.id)} className="text-red-400 hover:text-red-300 shrink-0">
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )
+                            }
 
                             {/* Action buttons */}
                             <div className="flex flex-col gap-2 pt-2">
@@ -623,10 +631,10 @@ export default function NewDocumentPage() {
                                     <ArrowLeft className="w-3 h-3 inline mr-1" /> Back
                                 </button>
                             </div>
-                        </div>
+                        </div >
 
                         {/* ── Right: PDF Canvas ── */}
-                        <div className="flex-1 min-w-0">
+                        < div className="flex-1 min-w-0" >
                             <div
                                 ref={pdfContainerRef}
                                 className="relative inline-block border border-slate-700 rounded-xl overflow-hidden cursor-crosshair select-none w-full"
@@ -694,245 +702,251 @@ export default function NewDocumentPage() {
                                         </div>
                                     ))}
                             </div>
-                        </div>
-                    </div>
+                        </div >
+                    </div >
                 )}
 
                 {/* ════════════════ STEP 3 (SELF-SIGN): INLINE SIGNING ════════════════ */}
-                {step === 3 && isSelfSign && (
-                    <div className="animate-fade-in">
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <h2 className="text-xl font-bold text-white">Sign Your Document</h2>
-                                <p className="text-slate-400 text-sm mt-0.5">Click on each highlighted area to add your signature.</p>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-slate-400">
-                                <span>{signatures.length}/{placeholders.length} signed</span>
-                                <div className="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                                    <div
-                                        className="h-full rounded-full bg-violet-500 transition-all"
-                                        style={{ width: `${placeholders.length > 0 ? (signatures.length / placeholders.length) * 100 : 0}%` }}
-                                    />
+                {
+                    step === 3 && isSelfSign && (
+                        <div className="animate-fade-in">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">Sign Your Document</h2>
+                                    <p className="text-slate-400 text-sm mt-0.5">Click on each highlighted area to add your signature.</p>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* Page navigation */}
-                        {pdfPages.length > 1 && (
-                            <div className="flex items-center gap-2 mb-4">
-                                {pdfPages.map((_, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => setActivePage(i + 1)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                                    >Page {i + 1}</button>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* PDF with signing placeholders */}
-                        <div className="relative inline-block border border-slate-700 rounded-xl overflow-hidden">
-                            {pdfPages[activePage - 1] && (
-                                <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="max-w-full" draggable={false} />
-                            )}
-
-                            {placeholders
-                                .filter(p => p.pageNumber === activePage)
-                                .map(p => {
-                                    const signed = isPlaceholderSigned(p.id)
-                                    const sig = signatures.find(s => s.placeholderId === p.id)
-                                    const canReplicateHere = !signed && lastSignatureImage
-
-                                    return (
+                                <div className="flex items-center gap-2 text-xs text-slate-400">
+                                    <span>{signatures.length}/{placeholders.length} signed</span>
+                                    <div className="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
                                         <div
-                                            key={p.id}
-                                            ref={el => { placeholderRefs.current[p.id] = el }}
-                                            className={`absolute transition-all ${signed
-                                                ? 'border-2 border-emerald-500 bg-emerald-500/10'
-                                                : canReplicateHere
-                                                    ? 'border-2 border-amber-400 bg-amber-500/10'
-                                                    : 'border-2 border-violet-400 bg-violet-500/10 hover:bg-violet-500/20 animate-pulse-slow cursor-pointer'
-                                                }`}
-                                            style={{
-                                                left: `${p.xPercent}%`,
-                                                top: `${p.yPercent}%`,
-                                                width: `${p.widthPercent}%`,
-                                                height: `${p.heightPercent}%`,
-                                            }}
-                                            onClick={() => {
-                                                if (!signed && !canReplicateHere) handlePlaceholderClick(p.id)
-                                            }}
-                                        >
-                                            {signed && sig ? (
-                                                <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain" />
-                                            ) : canReplicateHere ? (
-                                                <div className="flex flex-col items-center justify-center h-full w-full gap-0.5 p-0.5">
-                                                    <img
-                                                        src={lastSignatureImage}
-                                                        alt="Previous signature"
-                                                        className="object-contain opacity-50"
-                                                        style={{ maxHeight: '55%', maxWidth: '90%' }}
-                                                    />
-                                                    <div className="flex gap-1 flex-shrink-0">
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
-                                                            className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap"
-                                                        >✓ Apply Same</button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
-                                                            className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-slate-600 hover:bg-slate-500 text-white transition-colors whitespace-nowrap"
-                                                        >✎ Sign New</button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center justify-center h-full">
-                                                    <span className="text-violet-400 text-[10px] font-medium">✍ Click to sign</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )
-                                })}
-                        </div>
-
-                        {/* Action buttons */}
-                        <div className="flex items-center gap-3 mt-6">
-                            <button onClick={() => setStep(2)} disabled={submitting} className="btn-secondary text-sm">
-                                ← Back
-                            </button>
-                            <div className="flex-1" />
-                            <button
-                                onClick={handleSelfSignSubmit}
-                                disabled={!allSigned || submitting}
-                                className="btn-primary text-sm"
-                            >
-                                {submitting ? 'Submitting…' : allSigned ? '✓ Finalize & Save' : `Sign all ${placeholders.length} fields first`}
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* ════════════════ STEP 3 (REQUEST): SEND ════════════════ */}
-                {step === 3 && !isSelfSign && (
-                    <div className="max-w-xl mx-auto animate-fade-in">
-                        <h2 className="text-xl font-bold text-white mb-2">Review & Send</h2>
-                        <p className="text-slate-400 text-sm mb-6">Confirm signers and their signing order, then send.</p>
-
-                        <div className="card p-6 space-y-4">
-                            <p className="text-xs font-semibold text-slate-400 uppercase">Signing Order</p>
-                            {signers.map((s, i) => (
-                                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
-                                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: s.color }}>
-                                        {s.priority}
-                                    </div>
-                                    <div className="flex-1">
-                                        <input
-                                            type="email"
-                                            className="input text-sm py-1.5"
-                                            value={s.email}
-                                            onChange={e => {
-                                                const updated = [...signers]
-                                                updated[i] = { ...updated[i], email: e.target.value }
-                                                setSigners(updated)
-                                            }}
+                                            className="h-full rounded-full bg-violet-500 transition-all"
+                                            style={{ width: `${placeholders.length > 0 ? (signatures.length / placeholders.length) * 100 : 0}%` }}
                                         />
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <button
-                                            disabled={i === 0}
-                                            onClick={() => {
-                                                if (i === 0) return
-                                                const updated = [...signers]
-                                                const prev = updated[i - 1]
-                                                updated[i - 1] = { ...updated[i], priority: prev.priority }
-                                                updated[i] = { ...prev, priority: updated[i].priority }
-                                                setSigners(updated)
-                                            }}
-                                            className="text-slate-500 hover:text-white disabled:opacity-30 text-xs"
-                                        >▲</button>
-                                        <button
-                                            disabled={i === signers.length - 1}
-                                            onClick={() => {
-                                                if (i === signers.length - 1) return
-                                                const updated = [...signers]
-                                                const next = updated[i + 1]
-                                                updated[i + 1] = { ...updated[i], priority: next.priority }
-                                                updated[i] = { ...next, priority: updated[i].priority }
-                                                setSigners(updated)
-                                            }}
-                                            className="text-slate-500 hover:text-white disabled:opacity-30 text-xs"
-                                        >▼</button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="card p-4 mt-4 border-brand-800/40 bg-brand-950/20">
-                            <div className="flex items-start gap-3">
-                                <Info className="w-5 h-5 text-brand-400 shrink-0 mt-0.5" />
-                                <div className="text-sm text-slate-300">
-                                    <p className="font-medium text-white mb-1">Priority-based signing</p>
-                                    <p className="text-slate-400 text-xs leading-relaxed">
-                                        Signer #1 will receive an email first. After they sign, signer #2 will be notified, and so on.
-                                        Each signer will verify their identity with a one-time code before signing.
-                                    </p>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="flex gap-3 mt-6">
-                            <button onClick={() => setStep(2)} className="btn-secondary flex-1"><ArrowLeft className="w-4 h-4 inline mr-1" /> Back</button>
-                            <button onClick={handleSend} disabled={loading} className="btn-primary flex-1">
-                                {loading ? 'Sending…' : <><Send className="w-4 h-4 inline mr-1" /> Send for Signing</>}
-                            </button>
+                            {/* Page navigation */}
+                            {pdfPages.length > 1 && (
+                                <div className="flex items-center gap-2 mb-4">
+                                    {pdfPages.map((_, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => setActivePage(i + 1)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                        >Page {i + 1}</button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* PDF with signing placeholders */}
+                            <div className="relative inline-block border border-slate-700 rounded-xl overflow-hidden">
+                                {pdfPages[activePage - 1] && (
+                                    <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="max-w-full" draggable={false} />
+                                )}
+
+                                {placeholders
+                                    .filter(p => p.pageNumber === activePage)
+                                    .map(p => {
+                                        const signed = isPlaceholderSigned(p.id)
+                                        const sig = signatures.find(s => s.placeholderId === p.id)
+                                        const canReplicateHere = !signed && lastSignatureImage
+
+                                        return (
+                                            <div
+                                                key={p.id}
+                                                ref={el => { placeholderRefs.current[p.id] = el }}
+                                                className={`absolute transition-all ${signed
+                                                    ? 'border-2 border-emerald-500 bg-emerald-500/10'
+                                                    : canReplicateHere
+                                                        ? 'border-2 border-amber-400 bg-amber-500/10'
+                                                        : 'border-2 border-violet-400 bg-violet-500/10 hover:bg-violet-500/20 animate-pulse-slow cursor-pointer'
+                                                    }`}
+                                                style={{
+                                                    left: `${p.xPercent}%`,
+                                                    top: `${p.yPercent}%`,
+                                                    width: `${p.widthPercent}%`,
+                                                    height: `${p.heightPercent}%`,
+                                                }}
+                                                onClick={() => {
+                                                    if (!signed && !canReplicateHere) handlePlaceholderClick(p.id)
+                                                }}
+                                            >
+                                                {signed && sig ? (
+                                                    <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain" />
+                                                ) : canReplicateHere ? (
+                                                    <div className="flex flex-col items-center justify-center h-full w-full gap-0.5 p-0.5">
+                                                        <img
+                                                            src={lastSignatureImage}
+                                                            alt="Previous signature"
+                                                            className="object-contain opacity-50"
+                                                            style={{ maxHeight: '55%', maxWidth: '90%' }}
+                                                        />
+                                                        <div className="flex gap-1 flex-shrink-0">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
+                                                                className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap"
+                                                            >✓ Apply Same</button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
+                                                                className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-slate-600 hover:bg-slate-500 text-white transition-colors whitespace-nowrap"
+                                                            >✎ Sign New</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center justify-center h-full">
+                                                        <span className="text-violet-400 text-[10px] font-medium">✍ Click to sign</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-3 mt-6">
+                                <button onClick={() => setStep(2)} disabled={submitting} className="btn-secondary text-sm">
+                                    ← Back
+                                </button>
+                                <div className="flex-1" />
+                                <button
+                                    onClick={handleSelfSignSubmit}
+                                    disabled={!allSigned || submitting}
+                                    className="btn-primary text-sm"
+                                >
+                                    {submitting ? 'Submitting…' : allSigned ? '✓ Finalize & Save' : `Sign all ${placeholders.length} fields first`}
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )
+                }
+
+                {/* ════════════════ STEP 3 (REQUEST): SEND ════════════════ */}
+                {
+                    step === 3 && !isSelfSign && (
+                        <div className="max-w-xl mx-auto animate-fade-in">
+                            <h2 className="text-xl font-bold text-white mb-2">Review & Send</h2>
+                            <p className="text-slate-400 text-sm mb-6">Confirm signers and their signing order, then send.</p>
+
+                            <div className="card p-6 space-y-4">
+                                <p className="text-xs font-semibold text-slate-400 uppercase">Signing Order</p>
+                                {signers.map((s, i) => (
+                                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
+                                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: s.color }}>
+                                            {s.priority}
+                                        </div>
+                                        <div className="flex-1">
+                                            <input
+                                                type="email"
+                                                className="input text-sm py-1.5"
+                                                value={s.email}
+                                                onChange={e => {
+                                                    const updated = [...signers]
+                                                    updated[i] = { ...updated[i], email: e.target.value }
+                                                    setSigners(updated)
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                disabled={i === 0}
+                                                onClick={() => {
+                                                    if (i === 0) return
+                                                    const updated = [...signers]
+                                                    const prev = updated[i - 1]
+                                                    updated[i - 1] = { ...updated[i], priority: prev.priority }
+                                                    updated[i] = { ...prev, priority: updated[i].priority }
+                                                    setSigners(updated)
+                                                }}
+                                                className="text-slate-500 hover:text-white disabled:opacity-30 text-xs"
+                                            >▲</button>
+                                            <button
+                                                disabled={i === signers.length - 1}
+                                                onClick={() => {
+                                                    if (i === signers.length - 1) return
+                                                    const updated = [...signers]
+                                                    const next = updated[i + 1]
+                                                    updated[i + 1] = { ...updated[i], priority: next.priority }
+                                                    updated[i] = { ...next, priority: updated[i].priority }
+                                                    setSigners(updated)
+                                                }}
+                                                className="text-slate-500 hover:text-white disabled:opacity-30 text-xs"
+                                            >▼</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="card p-4 mt-4 border-brand-800/40 bg-brand-950/20">
+                                <div className="flex items-start gap-3">
+                                    <Info className="w-5 h-5 text-brand-400 shrink-0 mt-0.5" />
+                                    <div className="text-sm text-slate-300">
+                                        <p className="font-medium text-white mb-1">Priority-based signing</p>
+                                        <p className="text-slate-400 text-xs leading-relaxed">
+                                            Signer #1 will receive an email first. After they sign, signer #2 will be notified, and so on.
+                                            Each signer will verify their identity with a one-time code before signing.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 mt-6">
+                                <button onClick={() => setStep(2)} className="btn-secondary flex-1"><ArrowLeft className="w-4 h-4 inline mr-1" /> Back</button>
+                                <button onClick={handleSend} disabled={loading} className="btn-primary flex-1">
+                                    {loading ? 'Sending…' : <><Send className="w-4 h-4 inline mr-1" /> Send for Signing</>}
+                                </button>
+                            </div>
+                        </div>
+                    )
+                }
 
                 {/* ════════════════ STEP 4 (SELF-SIGN): SUCCESS ════════════════ */}
-                {step === 4 && isSelfSign && (
-                    <div className="max-w-md mx-auto text-center py-20 animate-fade-in">
-                        <div className="text-6xl mb-4">🎉</div>
-                        <h2 className="text-2xl font-bold text-white mb-2">Document Signed!</h2>
-                        <p className="text-slate-400 text-sm mb-6">
-                            Your signatures have been burned into the document. It&apos;s ready to download or share.
-                        </p>
-                        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                            <button
-                                onClick={() => {
-                                    const a = document.createElement('a')
-                                    a.href = `/api/documents/${documentId}/download`
-                                    a.download = ''
-                                    document.body.appendChild(a)
-                                    a.click()
-                                    document.body.removeChild(a)
-                                }}
-                                className="btn-primary text-sm"
-                            >
-                                ⬇ Download Signed Document
-                            </button>
-                            <button
-                                onClick={() => router.push(`/documents/${documentId}/status`)}
-                                className="btn-secondary text-sm"
-                            >
-                                View Status
-                            </button>
-                            <button
-                                onClick={() => router.push('/dashboard')}
-                                className="btn-secondary text-sm"
-                            >
-                                ← Back to Dashboard
-                            </button>
+                {
+                    step === 4 && isSelfSign && (
+                        <div className="max-w-md mx-auto text-center py-20 animate-fade-in">
+                            <div className="text-6xl mb-4">🎉</div>
+                            <h2 className="text-2xl font-bold text-white mb-2">Document Signed!</h2>
+                            <p className="text-slate-400 text-sm mb-6">
+                                Your signatures have been burned into the document. It&apos;s ready to download or share.
+                            </p>
+                            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                <button
+                                    onClick={() => {
+                                        const a = document.createElement('a')
+                                        a.href = `/api/documents/${documentId}/download`
+                                        a.download = ''
+                                        document.body.appendChild(a)
+                                        a.click()
+                                        document.body.removeChild(a)
+                                    }}
+                                    className="btn-primary text-sm"
+                                >
+                                    ⬇ Download Signed Document
+                                </button>
+                                <button
+                                    onClick={() => router.push(`/documents/${documentId}/status`)}
+                                    className="btn-secondary text-sm"
+                                >
+                                    View Status
+                                </button>
+                                <button
+                                    onClick={() => router.push('/dashboard')}
+                                    className="btn-secondary text-sm"
+                                >
+                                    ← Back to Dashboard
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )}
-            </main>
+                    )
+                }
+            </main >
 
             {/* Signature modal (for self-sign step 3) */}
-            <SignatureModal
+            < SignatureModal
                 isOpen={modalOpen}
                 onClose={() => { setModalOpen(false); setActivePlaceholderId(null) }}
                 onConfirm={handleSignatureConfirm}
             />
-        </div>
+        </div >
     )
 }

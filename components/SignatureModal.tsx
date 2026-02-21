@@ -11,6 +11,14 @@ interface SignatureModalProps {
 
 type TabType = 'draw' | 'type' | 'upload'
 
+const SIGNATURE_FONTS = [
+    { name: 'Dancing Script', css: '"Dancing Script", cursive' },
+    { name: 'Great Vibes', css: '"Great Vibes", cursive' },
+    { name: 'Sacramento', css: '"Sacramento", cursive' },
+    { name: 'Pacifico', css: '"Pacifico", cursive' },
+    { name: 'Caveat', css: '"Caveat", cursive' },
+]
+
 export default function SignatureModal({ isOpen, onClose, onConfirm }: SignatureModalProps) {
     const [tab, setTab] = useState<TabType>('draw')
     const [signatureData, setSignatureData] = useState<string | null>(null)
@@ -49,6 +57,7 @@ export default function SignatureModal({ isOpen, onClose, onConfirm }: Signature
 
     // ── Type tab ────────────────────────────────────────────────────────────────
     const [typedText, setTypedText] = useState('')
+    const [selectedFont, setSelectedFont] = useState(0)
     const typeCanvasRef = useRef<HTMLCanvasElement>(null)
 
     const captureTyped = useCallback((): string | null => {
@@ -63,13 +72,13 @@ export default function SignatureModal({ isOpen, onClose, onConfirm }: Signature
         ctx.clearRect(0, 0, 500, 120)
         ctx.fillStyle = 'transparent'
         ctx.fillRect(0, 0, 500, 120)
-        ctx.font = 'italic 48px "Dancing Script", "Brush Script MT", "Segoe Script", cursive'
+        ctx.font = `italic 48px ${SIGNATURE_FONTS[selectedFont].css}`
         ctx.fillStyle = '#1e1b4b'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(typedText, 250, 60)
         return canvas.toDataURL('image/png')
-    }, [typedText])
+    }, [typedText, selectedFont])
 
     // ── Upload tab ──────────────────────────────────────────────────────────────
     const [uploadPreview, setUploadPreview] = useState<string | null>(null)
@@ -109,6 +118,7 @@ export default function SignatureModal({ isOpen, onClose, onConfirm }: Signature
     const resetAll = () => {
         sigPadRef.current?.clear()
         setTypedText('')
+        setSelectedFont(0)
         setUploadPreview(null)
         setSignatureData(null)
     }
@@ -143,8 +153,8 @@ export default function SignatureModal({ isOpen, onClose, onConfirm }: Signature
                             key={t}
                             onClick={() => setTab(t)}
                             className={`flex-1 py-3 text-sm font-medium transition-all ${tab === t
-                                    ? 'text-brand-400 border-b-2 border-brand-400 bg-brand-500/5'
-                                    : 'text-slate-500 hover:text-slate-300'
+                                ? 'text-brand-400 border-b-2 border-brand-400 bg-brand-500/5'
+                                : 'text-slate-500 hover:text-slate-300'
                                 }`}
                         >
                             {t === 'draw' ? '✏️ Draw' : t === 'type' ? '⌨️ Type' : '📁 Upload'}
@@ -174,7 +184,7 @@ export default function SignatureModal({ isOpen, onClose, onConfirm }: Signature
                     {/* Type */}
                     {tab === 'type' && (
                         <div>
-                            <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet" />
+                            <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Great+Vibes&family=Sacramento&family=Pacifico&family=Caveat:wght@700&display=swap" rel="stylesheet" />
                             <input
                                 type="text"
                                 className="input text-center mb-3"
@@ -183,10 +193,26 @@ export default function SignatureModal({ isOpen, onClose, onConfirm }: Signature
                                 onChange={e => setTypedText(e.target.value)}
                                 maxLength={40}
                             />
+                            {/* Font selector */}
+                            <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                                {SIGNATURE_FONTS.map((font, i) => (
+                                    <button
+                                        key={font.name}
+                                        onClick={() => setSelectedFont(i)}
+                                        className={`shrink-0 px-3 py-2 rounded-lg border text-sm transition-all ${selectedFont === i
+                                            ? 'border-brand-500 bg-brand-500/10 text-brand-400 shadow-sm shadow-brand-500/20'
+                                            : 'border-slate-700 bg-slate-800/50 text-slate-400 hover:border-slate-600'
+                                            }`}
+                                        style={{ fontFamily: font.css, fontSize: '18px' }}
+                                    >
+                                        {typedText || 'Abc'}
+                                    </button>
+                                ))}
+                            </div>
                             <div className="border border-slate-700 rounded-xl bg-white p-4 flex items-center justify-center" style={{ height: 120 }}>
                                 <span
                                     className="text-4xl text-[#1e1b4b]"
-                                    style={{ fontFamily: '"Dancing Script", "Brush Script MT", "Segoe Script", cursive', fontStyle: 'italic' }}
+                                    style={{ fontFamily: SIGNATURE_FONTS[selectedFont].css, fontStyle: 'italic' }}
                                 >
                                     {typedText || 'Preview'}
                                 </span>
