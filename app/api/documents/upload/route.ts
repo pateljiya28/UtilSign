@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
 
         // ── Document type (self_sign or request_sign) ────────────────────────────
         const docType = (formData.get('type') as string) || 'request_sign'
+        const category = (formData.get('category') as string) || null
 
         // ── Upload to Supabase Storage ────────────────────────────────────────────
         const admin = createSupabaseAdminClient()
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
                 file_name: file.name,
                 status: 'draft',
                 type: docType,
+                category,
             })
             .select('id')
             .single()

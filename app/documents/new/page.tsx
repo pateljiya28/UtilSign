@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import SignatureModal from '@/components/SignatureModal'
 import ThemeToggle from '@/components/ThemeToggle'
+import { AGREEMENT_CATEGORIES } from '@/lib/categories'
 import {
     ArrowLeft, PenTool, Send, Upload, FileText, X, Check,
     ChevronUp, ChevronDown, Info, Plus, Trash2, GripVertical, Mail, User
@@ -86,6 +87,29 @@ export default function NewDocumentPage() {
     const [recipients, setRecipients] = useState<{ name: string; email: string }[]>([{ name: '', email: '' }])
     const [emailSubject, setEmailSubject] = useState('')
     const [emailMessage, setEmailMessage] = useState('')
+    const [category, setCategory] = useState('')
+
+    // ── Template prefill logic ──────────────────────────────────────────
+    useEffect(() => {
+        const templateId = searchParams.get('template')
+        if (!templateId || isSelfSign) return
+        const fetchTemplate = async () => {
+            try {
+                const res = await fetch(`/api/templates/${templateId}`)
+                const data = await res.json()
+                if (res.ok && data.template) {
+                    const t = data.template
+                    if (t.recipients && t.recipients.length > 0) {
+                        setRecipients(t.recipients.map((r: { name: string; email: string }) => ({ name: r.name || '', email: r.email || '' })))
+                    }
+                    if (t.subject) setEmailSubject(t.subject)
+                    if (t.message) setEmailMessage(t.message)
+                    if (t.category) setCategory(t.category)
+                }
+            } catch { /* ignore */ }
+        }
+        fetchTemplate()
+    }, [searchParams, isSelfSign])
 
     // Fetch user email on mount
     useEffect(() => {
@@ -123,6 +147,7 @@ export default function NewDocumentPage() {
             const formData = new FormData()
             formData.append('file', file)
             formData.append('type', isSelfSign ? 'self_sign' : 'request_sign')
+            if (category) formData.append('category', category)
             const res = await fetch('/api/documents/upload', { method: 'POST', body: formData })
             const data = await res.json()
             if (!res.ok) throw new Error(data.error ?? 'Upload failed')
@@ -675,6 +700,27 @@ export default function NewDocumentPage() {
                                     />
                                 </div>
                             </div>
+                        </div>
+
+                        {/* ── Section 4: Category ── */}
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-emerald-600/15 border border-emerald-500/20 flex items-center justify-center">
+                                    <FileText className="w-4 h-4 text-emerald-400" />
+                                </div>
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Category</h3>
+                                <span className="text-slate-500 text-[10px] ml-1">(optional)</span>
+                            </div>
+                            <select
+                                value={category}
+                                onChange={e => setCategory(e.target.value)}
+                                className="input text-sm w-full appearance-none"
+                            >
+                                <option value="">— Select a category —</option>
+                                {AGREEMENT_CATEGORIES.map(cat => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                            </select>
                         </div>
 
                         {/* Next button */}
