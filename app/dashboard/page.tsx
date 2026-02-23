@@ -278,7 +278,7 @@ export default function DashboardPage() {
                                         </div>
                                     </div>
                                     <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                                        Send documents to others for signing. Set custom signing order, priorities, and track progress in real-time.
+                                        Create an envelope with your document, add recipients, set signing order, and include a custom message — all in one step.
                                     </p>
                                     <div className="mt-auto">
                                         <Link
@@ -286,7 +286,7 @@ export default function DashboardPage() {
                                             className="flex items-center justify-center gap-2 w-full rounded-xl bg-sky-600 px-5 py-3 text-sm font-bold text-white transition-all duration-200 hover:bg-sky-500 hover:shadow-xl hover:shadow-sky-900/30 active:scale-[0.98]"
                                         >
                                             <Plus className="w-4 h-4" />
-                                            New Request-Sign Document
+                                            New Envelope
                                             <ArrowRight className="w-4 h-4 ml-auto opacity-50 group-hover:opacity-100 transition-opacity" />
                                         </Link>
                                     </div>

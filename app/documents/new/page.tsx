@@ -7,7 +7,7 @@ import SignatureModal from '@/components/SignatureModal'
 import ThemeToggle from '@/components/ThemeToggle'
 import {
     ArrowLeft, PenTool, Send, Upload, FileText, X, Check,
-    ChevronUp, ChevronDown, Info, Plus, Trash2, GripVertical
+    ChevronUp, ChevronDown, Info, Plus, Trash2, GripVertical, Mail, User
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -81,6 +81,11 @@ export default function NewDocumentPage() {
     const [activePlaceholderId, setActivePlaceholderId] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+    // Envelope data (request mode)
+    const [recipients, setRecipients] = useState<{ name: string; email: string }[]>([{ name: '', email: '' }])
+    const [emailSubject, setEmailSubject] = useState('')
+    const [emailMessage, setEmailMessage] = useState('')
 
     // Fetch user email on mount
     useEffect(() => {
@@ -234,21 +239,24 @@ export default function NewDocumentPage() {
                 body: JSON.stringify({ placeholders }),
             })
             const data = await res.json()
-            if (!res.ok) throw new Error(data.error ?? 'Failed to save placeholders')
+            if (!res.ok) {
+                console.error('[save placeholders] API error:', { status: res.status, data, documentId })
+                throw new Error(data.error ?? 'Failed to save placeholders')
+            }
 
             if (isSelfSign) {
                 // Move to inline signing step
                 setStep(3)
             } else {
-                // Build signers from unique emails
-                const uniqueEmails = Array.from(new Set(placeholders.map(p => p.assignedSignerEmail).filter(Boolean)))
-                if (uniqueEmails.length === 0) {
+                // Build signers from recipients (preserving envelope priority order)
+                const validRecipients = recipients.filter(r => r.email.trim())
+                if (validRecipients.length === 0) {
                     setError('No signer emails found.')
                     setLoading(false)
                     return
                 }
-                setSigners(uniqueEmails.map((email, i) => ({
-                    email,
+                setSigners(validRecipients.map((r, i) => ({
+                    email: r.email.trim(),
                     priority: i + 1,
                     color: SIGNER_COLORS[i % SIGNER_COLORS.length],
                 })))
@@ -348,10 +356,23 @@ export default function NewDocumentPage() {
         setLoading(true)
         setError('')
         try {
+            // Build signer data with names from recipients
+            const signerData = signers.map(s => {
+                const recipient = recipients.find(r => r.email.trim().toLowerCase() === s.email.toLowerCase())
+                return {
+                    email: s.email,
+                    name: recipient?.name || '',
+                    priority: s.priority,
+                }
+            })
             const res = await fetch(`/api/documents/${documentId}/send`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ signers: signers.map(s => ({ email: s.email, priority: s.priority })) }),
+                body: JSON.stringify({
+                    signers: signerData,
+                    subject: emailSubject || undefined,
+                    message: emailMessage || undefined,
+                }),
             })
             const data = await res.json()
             if (!res.ok) throw new Error(data.error ?? 'Failed to send')
@@ -378,7 +399,7 @@ export default function NewDocumentPage() {
     // ── Stepper config ────────────────────────────────────────────────────────
     const stepLabels = isSelfSign
         ? ['Upload', 'Placeholders', 'Sign']
-        : ['Upload', 'Placeholders', 'Send']
+        : ['Envelope', 'Placeholders', 'Send']
     const totalSteps = 3
 
     // ════════════════════════════════════════════════════════════════════════════
@@ -395,7 +416,7 @@ export default function NewDocumentPage() {
                         </button>
                         <span className="font-bold text-white flex items-center gap-2">
                             {isSelfSign ? <PenTool className="w-4 h-4 text-violet-400" /> : <Send className="w-4 h-4 text-sky-400" />}
-                            {isSelfSign ? 'Self Sign' : 'Request Sign'} — New Document
+                            {isSelfSign ? 'Self Sign' : 'Request Sign'} — {isSelfSign ? 'New Document' : 'New Envelope'}
                         </span>
                     </div>
                     {/* Stepper (hidden on success) */}
@@ -431,12 +452,12 @@ export default function NewDocumentPage() {
             )}
 
             <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-                {/* ════════════════ STEP 1: UPLOAD ════════════════ */}
-                {step === 1 && (
+                {/* ════════════════ STEP 1: UPLOAD (self-sign) / ENVELOPE (request) ════════════════ */}
+                {step === 1 && isSelfSign && (
                     <div className="max-w-xl mx-auto animate-fade-in">
                         <h2 className="text-xl font-bold text-white mb-2">Upload your document</h2>
                         <p className="text-slate-400 text-sm mb-6">
-                            Upload a PDF file (max 10MB) to {isSelfSign ? 'sign it yourself' : 'start the signing process'}.
+                            Upload a PDF file (max 10MB) to sign it yourself.
                         </p>
                         <div
                             className={`card p-12 border-2 border-dashed transition-all cursor-pointer text-center ${dragActive ? 'border-brand-500 bg-brand-500/5' :
@@ -482,6 +503,204 @@ export default function NewDocumentPage() {
                     </div>
                 )}
 
+                {/* ════════════════ STEP 1 (REQUEST): ENVELOPE SETUP ════════════════ */}
+                {step === 1 && !isSelfSign && (
+                    <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
+                        <div>
+                            <h2 className="text-xl font-bold text-white mb-1">Create your envelope</h2>
+                            <p className="text-slate-400 text-sm">Add your document, recipients, and an optional message.</p>
+                        </div>
+
+                        {/* ── Section 1: Add Document ── */}
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-sky-600/15 border border-sky-500/20 flex items-center justify-center">
+                                    <FileText className="w-4 h-4 text-sky-400" />
+                                </div>
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Add Document</h3>
+                            </div>
+                            <div
+                                className={`p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer text-center ${dragActive ? 'border-sky-500 bg-sky-500/5' :
+                                    file ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-700 hover:border-slate-600'
+                                    }`}
+                                onDragOver={e => { e.preventDefault(); setDragActive(true) }}
+                                onDragLeave={() => setDragActive(false)}
+                                onDrop={e => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
+                                onClick={() => fileInputRef.current?.click()}
+                            >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="application/pdf"
+                                    className="hidden"
+                                    onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
+                                />
+                                {file ? (
+                                    <div className="flex items-center justify-center gap-3">
+                                        <FileText className="w-6 h-6 text-emerald-400" />
+                                        <div className="text-left">
+                                            <p className="text-white font-medium text-sm">{file.name}</p>
+                                            <p className="text-slate-400 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                                        </div>
+                                        <button
+                                            onClick={e => { e.stopPropagation(); setFile(null) }}
+                                            className="text-red-400 hover:text-red-300 ml-2"
+                                        ><X className="w-4 h-4" /></button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        <Upload className="w-8 h-8 text-slate-500 mx-auto" />
+                                        <p className="text-white font-medium text-sm">Drop your PDF here</p>
+                                        <p className="text-slate-500 text-xs">or click to browse · max 10MB</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* ── Section 2: Add Recipients ── */}
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-violet-600/15 border border-violet-500/20 flex items-center justify-center">
+                                    <User className="w-4 h-4 text-violet-400" />
+                                </div>
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Add Recipients</h3>
+                            </div>
+                            <div className="space-y-3">
+                                {recipients.map((r, i) => (
+                                    <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
+                                        {/* Priority badge */}
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
+                                            {i + 1}
+                                        </div>
+                                        {/* Name */}
+                                        <input
+                                            type="text"
+                                            className="input text-sm py-1.5 flex-1 min-w-0"
+                                            placeholder="Name"
+                                            value={r.name}
+                                            onChange={e => {
+                                                const updated = [...recipients]
+                                                updated[i] = { ...updated[i], name: e.target.value }
+                                                setRecipients(updated)
+                                            }}
+                                        />
+                                        {/* Email */}
+                                        <input
+                                            type="email"
+                                            className="input text-sm py-1.5 flex-1 min-w-0"
+                                            placeholder="email@example.com"
+                                            value={r.email}
+                                            onChange={e => {
+                                                const updated = [...recipients]
+                                                updated[i] = { ...updated[i], email: e.target.value }
+                                                setRecipients(updated)
+                                            }}
+                                        />
+                                        {/* Reorder */}
+                                        <div className="flex flex-col gap-0.5 shrink-0">
+                                            <button
+                                                disabled={i === 0}
+                                                onClick={() => {
+                                                    const updated = [...recipients]
+                                                        ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
+                                                    setRecipients(updated)
+                                                }}
+                                                className="text-slate-500 hover:text-white disabled:opacity-20 text-[10px] leading-none"
+                                            >▲</button>
+                                            <button
+                                                disabled={i === recipients.length - 1}
+                                                onClick={() => {
+                                                    const updated = [...recipients]
+                                                        ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
+                                                    setRecipients(updated)
+                                                }}
+                                                className="text-slate-500 hover:text-white disabled:opacity-20 text-[10px] leading-none"
+                                            >▼</button>
+                                        </div>
+                                        {/* Remove */}
+                                        {recipients.length > 1 && (
+                                            <button
+                                                onClick={() => setRecipients(prev => prev.filter((_, j) => j !== i))}
+                                                className="text-red-400 hover:text-red-300 shrink-0"
+                                            ><X className="w-4 h-4" /></button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex gap-2 mt-3">
+                                <button
+                                    onClick={() => setRecipients(prev => [...prev, { name: '', email: '' }])}
+                                    className="btn-secondary text-xs px-3 py-1.5"
+                                ><Plus className="w-3 h-3 inline mr-1" /> Add Recipient</button>
+                                {userEmail && !recipients.some(r => r.email.toLowerCase() === userEmail.toLowerCase()) && (
+                                    <button
+                                        onClick={() => setRecipients(prev => [...prev, { name: userEmail.split('@')[0], email: userEmail }])}
+                                        className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all bg-blue-600 hover:bg-blue-500 text-white"
+                                    ><Plus className="w-3 h-3 inline mr-1" /> Add Me</button>
+                                )}
+                            </div>
+                            <p className="text-slate-500 text-[11px] mt-3 flex items-center gap-1">
+                                <Info className="w-3 h-3" /> Priority order determines who signs first. Drag or use arrows to reorder.
+                            </p>
+                        </div>
+
+                        {/* ── Section 3: Add Message ── */}
+                        <div className="card p-6">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-amber-600/15 border border-amber-500/20 flex items-center justify-center">
+                                    <Mail className="w-4 h-4 text-amber-400" />
+                                </div>
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Add Message</h3>
+                                <span className="text-slate-500 text-[10px] ml-1">(optional)</span>
+                            </div>
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs font-medium text-slate-400 mb-1 block">Subject</label>
+                                    <input
+                                        type="text"
+                                        className="input text-sm"
+                                        placeholder={`Please sign: ${file?.name || 'your document'}`}
+                                        value={emailSubject}
+                                        onChange={e => setEmailSubject(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-slate-400 mb-1 block">Message</label>
+                                    <textarea
+                                        className="input text-sm min-h-[80px] resize-y"
+                                        placeholder="Add a personal message to your recipients (optional)"
+                                        value={emailMessage}
+                                        onChange={e => setEmailMessage(e.target.value)}
+                                        rows={3}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Next button */}
+                        <button
+                            onClick={async () => {
+                                // Validate
+                                if (!file) { setError('Please add a document.'); return }
+                                const validRecipients = recipients.filter(r => r.email.trim())
+                                if (validRecipients.length === 0) { setError('Add at least one recipient with an email address.'); return }
+                                // Populate signerEmails from recipients (order = priority)
+                                setSignerEmails(validRecipients.map(r => r.email.trim()))
+                                // Set default subject if empty
+                                if (!emailSubject.trim()) {
+                                    setEmailSubject(`Please sign: ${file.name}`)
+                                }
+                                // Upload the file
+                                await handleUpload()
+                            }}
+                            disabled={!file || loading}
+                            className="btn-primary w-full"
+                        >
+                            {loading ? 'Uploading…' : 'Next →'}
+                        </button>
+                    </div>
+                )}
+
                 {/* ════════════════ STEP 2: PLACEHOLDERS (SIDEBAR LAYOUT) ════════════════ */}
                 {step === 2 && (
                     <div className="animate-fade-in flex gap-5 items-start" style={{ minHeight: 'calc(100vh - 140px)' }}>
@@ -509,45 +728,18 @@ export default function NewDocumentPage() {
                                 </div>
                             )}
 
-                            {/* Signer email inputs — only for request mode */}
+                            {/* Recipients list — read-only for request mode (set in Step 1) */}
                             {!isSelfSign && (
                                 <div className="card p-3">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Signer Emails</p>
-                                    <div className="space-y-2">
-                                        {signerEmails.map((email, i) => (
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Recipients</p>
+                                    <div className="space-y-1.5">
+                                        {signerEmails.filter(Boolean).map((email, i) => (
                                             <div key={i} className="flex items-center gap-1.5">
                                                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
-                                                <input
-                                                    type="email"
-                                                    className="input text-xs py-1.5 flex-1"
-                                                    placeholder={`signer${i + 1}@example.com`}
-                                                    value={email}
-                                                    onChange={e => {
-                                                        const updated = [...signerEmails]
-                                                        updated[i] = e.target.value
-                                                        setSignerEmails(updated)
-                                                    }}
-                                                />
-                                                {signerEmails.length > 1 && (
-                                                    <button onClick={() => {
-                                                        setSignerEmails(prev => prev.filter((_, j) => j !== i))
-                                                        if (activeSignerIndex >= signerEmails.length - 1) setActiveSignerIndex(Math.max(0, signerEmails.length - 2))
-                                                    }} className="text-red-400 hover:text-red-300 shrink-0">
-                                                        <X className="w-3.5 h-3.5" />
-                                                    </button>
-                                                )}
+                                                <span className="text-xs text-slate-300 truncate">{email}</span>
+                                                <span className="text-[10px] text-slate-600 ml-auto shrink-0">#{i + 1}</span>
                                             </div>
                                         ))}
-                                        <button
-                                            onClick={() => setSignerEmails(prev => [...prev, ''])}
-                                            className="btn-secondary text-xs px-2 py-1 w-full"
-                                        ><Plus className="w-3 h-3 inline mr-1" /> Add Signer</button>
-                                        {userEmail && !signerEmails.some(e => e.toLowerCase() === userEmail.toLowerCase()) && (
-                                            <button
-                                                onClick={() => setSignerEmails(prev => [...prev, userEmail])}
-                                                className="text-xs px-2 py-1 w-full rounded-lg font-semibold transition-all bg-blue-600 hover:bg-blue-500 text-white"
-                                            ><Plus className="w-3 h-3 inline mr-1" /> Add Me</button>
-                                        )}
                                     </div>
                                 </div>
                             )}
@@ -825,57 +1017,48 @@ export default function NewDocumentPage() {
                 {
                     step === 3 && !isSelfSign && (
                         <div className="max-w-xl mx-auto animate-fade-in">
-                            <h2 className="text-xl font-bold text-white mb-2">Review & Send</h2>
-                            <p className="text-slate-400 text-sm mb-6">Confirm signers and their signing order, then send.</p>
+                            <h2 className="text-xl font-bold text-white mb-2">Review &amp; Send</h2>
+                            <p className="text-slate-400 text-sm mb-6">Review your envelope details and send for signing.</p>
 
-                            <div className="card p-6 space-y-4">
+                            {/* Signing order (read-only) */}
+                            <div className="card p-6 space-y-3">
                                 <p className="text-xs font-semibold text-slate-400 uppercase">Signing Order</p>
-                                {signers.map((s, i) => (
-                                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
-                                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: s.color }}>
-                                            {s.priority}
+                                {signers.map((s, i) => {
+                                    const recipient = recipients.find(r => r.email.trim().toLowerCase() === s.email.toLowerCase())
+                                    return (
+                                        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
+                                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: s.color }}>
+                                                {s.priority}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                {recipient?.name && (
+                                                    <p className="text-sm text-white font-medium truncate">{recipient.name}</p>
+                                                )}
+                                                <p className="text-xs text-slate-400 truncate">{s.email}</p>
+                                            </div>
                                         </div>
-                                        <div className="flex-1">
-                                            <input
-                                                type="email"
-                                                className="input text-sm py-1.5"
-                                                value={s.email}
-                                                onChange={e => {
-                                                    const updated = [...signers]
-                                                    updated[i] = { ...updated[i], email: e.target.value }
-                                                    setSigners(updated)
-                                                }}
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <button
-                                                disabled={i === 0}
-                                                onClick={() => {
-                                                    if (i === 0) return
-                                                    const updated = [...signers]
-                                                    const prev = updated[i - 1]
-                                                    updated[i - 1] = { ...updated[i], priority: prev.priority }
-                                                    updated[i] = { ...prev, priority: updated[i].priority }
-                                                    setSigners(updated)
-                                                }}
-                                                className="text-slate-500 hover:text-white disabled:opacity-30 text-xs"
-                                            >▲</button>
-                                            <button
-                                                disabled={i === signers.length - 1}
-                                                onClick={() => {
-                                                    if (i === signers.length - 1) return
-                                                    const updated = [...signers]
-                                                    const next = updated[i + 1]
-                                                    updated[i + 1] = { ...updated[i], priority: next.priority }
-                                                    updated[i] = { ...next, priority: updated[i].priority }
-                                                    setSigners(updated)
-                                                }}
-                                                className="text-slate-500 hover:text-white disabled:opacity-30 text-xs"
-                                            >▼</button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    )
+                                })}
                             </div>
+
+                            {/* Email preview */}
+                            {(emailSubject || emailMessage) && (
+                                <div className="card p-5 mt-4">
+                                    <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Email Preview</p>
+                                    {emailSubject && (
+                                        <div className="mb-2">
+                                            <span className="text-[10px] text-slate-500 uppercase">Subject:</span>
+                                            <p className="text-sm text-white">{emailSubject}</p>
+                                        </div>
+                                    )}
+                                    {emailMessage && (
+                                        <div>
+                                            <span className="text-[10px] text-slate-500 uppercase">Message:</span>
+                                            <p className="text-sm text-slate-300 whitespace-pre-wrap">{emailMessage}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="card p-4 mt-4 border-brand-800/40 bg-brand-950/20">
                                 <div className="flex items-start gap-3">

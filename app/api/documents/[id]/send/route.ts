@@ -6,6 +6,7 @@ import { logEvent } from '@/lib/audit'
 
 interface SignerInput {
     email: string
+    name?: string
     priority: number
 }
 
@@ -50,7 +51,11 @@ export async function POST(
         }
 
         // ── Parse & validate signers ──────────────────────────────────────────────
-        const body = await req.json() as { signers: SignerInput[] }
+        const body = await req.json() as {
+            signers: SignerInput[]
+            subject?: string
+            message?: string
+        }
         if (!Array.isArray(body.signers) || body.signers.length === 0) {
             return NextResponse.json({ error: 'signers array is required' }, { status: 400 })
         }
@@ -96,11 +101,14 @@ export async function POST(
 
         if (!senderIsFirstSigner) {
             // Standard flow: email the first signer
+            const senderDisplayName = body.signers.find(s => s.email.toLowerCase() === (user.email ?? '').toLowerCase())?.name || (user.email ?? 'Document sender')
             await sendSigningRequest({
                 to: firstSigner.email,
-                senderName: user.email ?? 'Document sender',
+                senderName: senderDisplayName,
                 documentName: doc.file_name,
                 signLink,
+                customSubject: body.subject,
+                customMessage: body.message,
             })
         }
 

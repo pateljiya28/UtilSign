@@ -30,15 +30,24 @@ export async function sendSigningRequest({
   senderName,
   documentName,
   signLink,
+  customSubject,
+  customMessage,
 }: {
   to: string
   senderName: string
   documentName: string
   signLink: string
+  customSubject?: string
+  customMessage?: string
 }) {
+  const subject = customSubject || `${senderName} has requested your signature on "${documentName}"`
+  const messageBlock = customMessage
+    ? `<div style="background:#fafafa;border-left:4px solid #6366f1;border-radius:0 8px 8px 0;padding:16px 20px;margin:20px 0;"><p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0;font-style:italic;">${customMessage.replace(/\n/g, '<br>')}</p></div>`
+    : ''
+
   return sendMail({
     to,
-    subject: `${senderName} has requested your signature on "${documentName}"`,
+    subject,
     html: `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signature Request</title></head>
@@ -60,6 +69,7 @@ export async function sendSigningRequest({
           <div style="background:#f0f4ff;border-left:4px solid #6366f1;border-radius:0 8px 8px 0;padding:16px 20px;margin:20px 0;">
             <p style="color:#312e81;font-size:15px;font-weight:600;margin:0;">📄 ${documentName}</p>
           </div>
+          ${messageBlock}
           <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 24px;">
             Click the button below to review and sign this document. You will be asked to verify your identity with a one-time code sent to your email.
           </p>

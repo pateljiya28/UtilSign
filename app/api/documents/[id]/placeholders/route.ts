@@ -46,7 +46,11 @@ export async function POST(
         }
 
         // ── Replace existing placeholders atomically ──────────────────────────────
-        await admin.from('placeholders').delete().eq('document_id', documentId)
+        const { error: deleteError } = await admin.from('placeholders').delete().eq('document_id', documentId)
+        if (deleteError) {
+            console.error('[placeholders] Delete failed:', deleteError)
+            return NextResponse.json({ error: `Failed to clear old placeholders: ${deleteError.message}` }, { status: 500 })
+        }
 
         const rows = body.placeholders.map((p) => ({
             id: p.id, // Use client-provided UUID
@@ -62,7 +66,8 @@ export async function POST(
 
         const { error: insertError } = await admin.from('placeholders').insert(rows)
         if (insertError) {
-            return NextResponse.json({ error: 'Failed to save placeholders' }, { status: 500 })
+            console.error('[placeholders] Insert failed:', insertError)
+            return NextResponse.json({ error: `Failed to save placeholders: ${insertError.message}` }, { status: 500 })
         }
 
         return NextResponse.json({ success: true, count: rows.length })
