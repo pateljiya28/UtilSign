@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
-    PenTool, Send, FileText, CheckCircle, Clock,
-    Plus, ArrowRight,
+    PenTool, Send, FileText, CheckCircle, Clock, AlertCircle, Users,
+    Plus, ArrowRight, ChevronRight, Timer,
 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -17,29 +17,11 @@ interface DocRow {
     type: string | null
 }
 
-// ─── Components ─────────────────────────────────────────────────────────────
-function StatCard({ label, value, icon: Icon, color }: {
-    label: string; value: number; icon: React.ComponentType<{ className?: string }>; color: string
-}) {
-    const colorMap: Record<string, string> = {
-        violet: 'from-violet-600/15 border-violet-500/20 text-violet-400',
-        sky: 'from-sky-600/15 border-sky-500/20 text-sky-400',
-        emerald: 'from-emerald-600/15 border-emerald-500/20 text-emerald-400',
-        amber: 'from-amber-600/15 border-amber-500/20 text-amber-400',
-    }
-    return (
-        <div className={`relative overflow-hidden rounded-xl border bg-gradient-to-br to-transparent p-5 transition-all hover:scale-[1.02] ${colorMap[color] ?? colorMap.violet}`}>
-            <div className="flex items-center justify-between">
-                <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</p>
-                    <p className="text-3xl font-black text-white mt-1">{value}</p>
-                </div>
-                <div className="rounded-xl bg-slate-800/50 p-3">
-                    <Icon className="w-5 h-5" />
-                </div>
-            </div>
-        </div>
-    )
+interface TemplateRow {
+    id: string
+    name: string
+    description: string | null
+    category: string | null
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -50,12 +32,17 @@ export default function HomePage() {
     )
 
     const [documents, setDocuments] = useState<DocRow[]>([])
+    const [templates, setTemplates] = useState<TemplateRow[]>([])
     const [loading, setLoading] = useState(true)
+    const [userName, setUserName] = useState('')
+    const [userEmail, setUserEmail] = useState('')
 
     useEffect(() => {
         const fetchData = async () => {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) return
+            setUserName(user.email?.split('@')[0] ?? 'there')
+            setUserEmail(user.email ?? '')
 
             const { data } = await supabase
                 .from('documents')
@@ -64,102 +51,250 @@ export default function HomePage() {
                 .order('created_at', { ascending: false })
 
             setDocuments(data ?? [])
+
+            // Fetch templates
+            try {
+                const res = await fetch('/api/templates')
+                const tData = await res.json()
+                if (res.ok) setTemplates(tData.templates?.slice(0, 3) ?? [])
+            } catch { /* ignore */ }
+
             setLoading(false)
         }
         fetchData()
     }, [])
 
-    const selfCount = documents.filter(d => d.type === 'self_sign').length
+    const actionRequired = documents.filter(d => d.status === 'sent' || d.status === 'in_progress').length
+    const waitingForOthers = documents.filter(d => d.type === 'request_sign' && ['sent', 'in_progress'].includes(d.status)).length
+    const expiringSoon = documents.filter(d => {
+        const age = Date.now() - new Date(d.created_at).getTime()
+        return age > 25 * 86400000 && !['completed', 'cancelled'].includes(d.status)
+    }).length
     const completedCount = documents.filter(d => d.status === 'completed').length
-    const pendingCount = documents.filter(d => ['draft', 'sent', 'in_progress'].includes(d.status)).length
 
     if (loading) {
         return (
             <div className="text-center py-32">
-                <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-slate-500 text-sm">Loading…</p>
+                <div className="w-8 h-8 border-2 border-[#4C00FF] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">Loading…</p>
             </div>
         )
     }
 
+    const initials = userName ? userName.charAt(0).toUpperCase() + (userName.charAt(1) || '').toUpperCase() : '??'
+
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10 animate-fade-in">
-            {/* Welcome */}
-            <div>
-                <h1 className="text-3xl font-extrabold text-white tracking-tight">
-                    Create a new document
-                </h1>
-                <p className="text-slate-400 text-sm mt-1">Choose how you'd like to work with your document.</p>
-            </div>
-
-            {/* Entry-Point Cards */}
-            <div className="grid md:grid-cols-2 gap-5">
-                {/* Self Sign */}
-                <div className="group relative overflow-hidden rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-600/10 via-transparent to-transparent p-px transition-all duration-300 hover:border-violet-500/40 hover:shadow-[0_0_40px_-12px_rgba(139,92,246,0.3)]">
-                    <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-violet-500/10 blur-3xl group-hover:bg-violet-500/20 transition-all duration-500" />
-                    <div className="relative flex h-full flex-col rounded-[15px] bg-slate-900/90 p-7 backdrop-blur-sm">
-                        <div className="flex items-center gap-4 mb-4">
-                            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-violet-600/15 border border-violet-500/20 group-hover:scale-110 group-hover:bg-violet-600/25 transition-all duration-300">
-                                <PenTool className="w-6 h-6 text-violet-400" />
+        <div>
+            {/* ── Purple Welcome Banner ──────────────────────────────────────── */}
+            <div data-theme-preserve className="bg-gradient-to-r from-[#1B0036] via-[#2D0060] to-[#1B0036]">
+                <div className="max-w-[1400px] mx-auto px-6">
+                    {/* Welcome Section */}
+                    <div className="pt-10 pb-6">
+                        <h1 className="text-2xl font-bold text-white mb-3">Welcome back</h1>
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-[#4C00FF] flex items-center justify-center text-white text-sm font-bold border-2 border-white/30">
+                                {initials}
                             </div>
-                            <div>
-                                <h3 className="text-xl font-bold text-white">Self Sign</h3>
-                                <p className="text-xs text-violet-400/70 font-medium">Sign documents yourself</p>
-                            </div>
-                        </div>
-                        <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                            Upload a document and sign it instantly — you&apos;re automatically set as the only signer. No emails, no waiting.
-                        </p>
-                        <div className="mt-auto">
-                            <Link
-                                href="/documents/new?mode=self"
-                                className="flex items-center justify-center gap-2 w-full rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white transition-all duration-200 hover:bg-violet-500 hover:shadow-xl hover:shadow-violet-900/30 active:scale-[0.98]"
-                            >
-                                <Plus className="w-4 h-4" />
-                                New Self-Sign Document
-                                <ArrowRight className="w-4 h-4 ml-auto opacity-50 group-hover:opacity-100 transition-opacity" />
-                            </Link>
+                            <span className="text-white/80 text-sm font-medium">{userEmail}</span>
                         </div>
                     </div>
-                </div>
 
-                {/* Request Sign */}
-                <div className="group relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-600/10 via-transparent to-transparent p-px transition-all duration-300 hover:border-sky-500/40 hover:shadow-[0_0_40px_-12px_rgba(14,165,233,0.3)]">
-                    <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-sky-500/10 blur-3xl group-hover:bg-sky-500/20 transition-all duration-500" />
-                    <div className="relative flex h-full flex-col rounded-[15px] bg-slate-900/90 p-7 backdrop-blur-sm">
-                        <div className="flex items-center gap-4 mb-4">
-                            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-sky-600/15 border border-sky-500/20 group-hover:scale-110 group-hover:bg-sky-600/25 transition-all duration-300">
-                                <Send className="w-6 h-6 text-sky-400" />
+                    {/* Stats Row */}
+                    <div className="pb-8">
+                        <p className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">Last 6 Months</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-0">
+                            {/* Action Required */}
+                            <div className="pr-6 border-r border-white/10">
+                                <p className="text-4xl font-bold text-white">{actionRequired}</p>
+                                <p className="text-white/60 text-sm mt-1">Action Required</p>
                             </div>
-                            <div>
-                                <h3 className="text-xl font-bold text-white">Request Sign</h3>
-                                <p className="text-xs text-sky-400/70 font-medium">Send to others for signing</p>
+                            {/* Waiting for Others */}
+                            <div className="px-6 border-r border-white/10">
+                                <p className="text-4xl font-bold text-white">{waitingForOthers}</p>
+                                <p className="text-white/60 text-sm mt-1">Waiting for Others</p>
                             </div>
-                        </div>
-                        <p className="text-sm text-slate-400 leading-relaxed mb-6">
-                            Create an envelope with your document, add recipients, set signing order, and include a custom message — all in one step.
-                        </p>
-                        <div className="mt-auto">
-                            <Link
-                                href="/documents/new?mode=request"
-                                className="flex items-center justify-center gap-2 w-full rounded-xl bg-sky-600 px-5 py-3 text-sm font-bold text-white transition-all duration-200 hover:bg-sky-500 hover:shadow-xl hover:shadow-sky-900/30 active:scale-[0.98]"
-                            >
-                                <Plus className="w-4 h-4" />
-                                New Envelope
-                                <ArrowRight className="w-4 h-4 ml-auto opacity-50 group-hover:opacity-100 transition-opacity" />
-                            </Link>
+                            {/* Expiring Soon */}
+                            <div className="px-6 border-r border-white/10">
+                                <p className="text-4xl font-bold text-white">{expiringSoon}</p>
+                                <p className="text-white/60 text-sm mt-1">Expiring Soon</p>
+                            </div>
+                            {/* Completed */}
+                            <div className="pl-6">
+                                <p className="text-4xl font-bold text-white">{completedCount}</p>
+                                <p className="text-white/60 text-sm mt-1">Completed</p>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label="Total" value={documents.length} icon={FileText} color="violet" />
-                <StatCard label="Self-Signed" value={selfCount} icon={PenTool} color="sky" />
-                <StatCard label="Completed" value={completedCount} icon={CheckCircle} color="emerald" />
-                <StatCard label="Pending" value={pendingCount} icon={Clock} color="amber" />
+            {/* ── Get Started or Use Templates Section ──────────────────────── */}
+            <div className="max-w-[1400px] mx-auto px-6 py-10">
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-gray-900">Get Started or Use Templates</h2>
+                    <Link
+                        href="/templates"
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                        Browse all Templates
+                        <ChevronRight className="w-4 h-4" />
+                    </Link>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-5">
+                    {/* Sign Card — Self Sign only */}
+                    <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow group">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-lg bg-[#4C00FF]/10 flex items-center justify-center">
+                                <PenTool className="w-5 h-5 text-[#4C00FF]" />
+                            </div>
+                            <h3 className="font-semibold text-gray-900">Self Sign</h3>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                            Upload a document to sign it yourself quickly and securely.
+                        </p>
+                        <Link
+                            href="/documents/new?mode=self"
+                            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-[#4C00FF] text-white text-sm font-semibold hover:bg-[#3D00CC] transition-colors"
+                        >
+                            <PenTool className="w-4 h-4" />
+                            Self Sign
+                        </Link>
+                    </div>
+
+                    {/* Template Cards */}
+                    {templates.length > 0 ? (
+                        templates.slice(0, 2).map(t => (
+                            <div key={t.id} className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow group">
+                                <div className="flex items-start justify-between mb-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                                            <FileText className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Template</p>
+                                            <h3 className="font-semibold text-gray-900 mt-0.5">{t.name}</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                                {t.description && (
+                                    <p className="text-sm text-gray-500 mb-4 line-clamp-2">{t.description}</p>
+                                )}
+                                {t.category && (
+                                    <span className="inline-block px-2.5 py-1 rounded-full bg-[#4C00FF]/10 text-[#4C00FF] text-xs font-medium mb-4">
+                                        {t.category}
+                                    </span>
+                                )}
+                                <Link
+                                    href={`/documents/new?mode=request&template=${t.id}`}
+                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors mt-auto"
+                                >
+                                    Use Template
+                                    <ArrowRight className="w-4 h-4" />
+                                </Link>
+                            </div>
+                        ))
+                    ) : (
+                        <>
+                            {/* Placeholder cards when no templates */}
+                            <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                                        <FileText className="w-5 h-5 text-gray-400" />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Template</p>
+                                        <h3 className="font-semibold text-gray-900 mt-0.5">Create your first template</h3>
+                                    </div>
+                                </div>
+                                <p className="text-sm text-gray-500 mb-6">Save time by creating reusable envelope templates for common workflows.</p>
+                                <Link
+                                    href="/templates/new"
+                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                    Create Template
+                                </Link>
+                            </div>
+                            <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                                        <Users className="w-5 h-5 text-gray-400" />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Quick Start</p>
+                                        <h3 className="font-semibold text-gray-900 mt-0.5">Send for signing</h3>
+                                    </div>
+                                </div>
+                                <p className="text-sm text-gray-500 mb-6">Create an envelope and send documents to others for their signature.</p>
+                                <Link
+                                    href="/documents/new?mode=request"
+                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                                >
+                                    Get Started
+                                    <ArrowRight className="w-4 h-4" />
+                                </Link>
+                            </div>
+                        </>
+                    )}
+                </div>
             </div>
+
+            {/* ── Recent Activity ──────────────────────────────────────────────── */}
+            {documents.length > 0 && (
+                <div className="max-w-[1400px] mx-auto px-6 pb-10">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xl font-bold text-gray-900">Recent Activity</h2>
+                        <Link
+                            href="/history"
+                            className="flex items-center gap-1 text-sm font-medium text-[#4C00FF] hover:text-[#3D00CC] transition-colors"
+                        >
+                            View all
+                            <ChevronRight className="w-4 h-4" />
+                        </Link>
+                    </div>
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        {documents.slice(0, 5).map((doc, i) => (
+                            <Link
+                                key={doc.id}
+                                href={`/documents/${doc.id}/status`}
+                                className={`flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors ${i < Math.min(documents.length, 5) - 1 ? 'border-b border-gray-100' : ''}`}
+                            >
+                                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${doc.type === 'self_sign' ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                                    {doc.type === 'self_sign'
+                                        ? <PenTool className="w-4 h-4 text-[#4C00FF]" />
+                                        : <Send className="w-4 h-4 text-blue-600" />
+                                    }
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                        {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </p>
+                                </div>
+                                <StatusPill status={doc.status} />
+                                <ChevronRight className="w-4 h-4 text-gray-300" />
+                            </Link>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
+    )
+}
+
+function StatusPill({ status }: { status: string }) {
+    const map: Record<string, { bg: string; text: string; label: string }> = {
+        draft: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Draft' },
+        sent: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Sent' },
+        in_progress: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'In Progress' },
+        completed: { bg: 'bg-green-50', text: 'text-green-700', label: 'Completed' },
+        cancelled: { bg: 'bg-red-50', text: 'text-red-700', label: 'Cancelled' },
+    }
+    const s = map[status] ?? map.draft
+    return (
+        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
+            {s.label}
+        </span>
     )
 }

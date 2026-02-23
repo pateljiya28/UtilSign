@@ -113,7 +113,7 @@ html.light body {
 }
 
 /* ── Core text color overrides ───────────────────────────────────────────── */
-html.light .text-white {
+html.light .text-white:not([data-theme-preserve] *):not([data-theme-preserve]) {
   color: #111827 !important;
 }
 

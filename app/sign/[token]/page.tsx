@@ -1,8 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import SignatureModal from '@/components/SignatureModal'
+import {
+    PenTool, Check, AlertCircle, Clock, ShieldCheck,
+    ChevronUp, ChevronDown, CheckCircle, Info, Lock,
+    ArrowLeft, Download
+} from 'lucide-react'
 
 type SignerState = 'loading' | 'otp' | 'document' | 'success' | 'error'
 
@@ -25,6 +30,7 @@ interface SignatureCapture {
 
 export default function SignPage() {
     const params = useParams()
+    const router = useRouter()
     const token = params.token as string
 
     const [state, setState] = useState<SignerState>('loading')
@@ -125,9 +131,7 @@ export default function SignPage() {
                 setOtpLoading(false)
                 return
             }
-            // Session token stays in React state ONLY
             setSessionToken(data.sessionToken)
-            // Load the document for viewing
             await loadDocument(data.sessionToken)
             setState('document')
         } catch {
@@ -148,7 +152,7 @@ export default function SignPage() {
             const data = await res.json()
             if (!res.ok) throw new Error(data.message)
             setCountdown(600)
-            setResendCooldown(60) // 60s cooldown after resend
+            setResendCooldown(60)
         } catch {
             setOtpError('Failed to resend OTP.')
         } finally {
@@ -192,7 +196,6 @@ export default function SignPage() {
         }
     }
 
-    // ── Step 4: Handle placeholder click → open modal ──────────────────────────
     const handlePlaceholderClick = (placeholderId: string) => {
         setActivePlaceholderId(placeholderId)
         setModalOpen(true)
@@ -203,48 +206,29 @@ export default function SignPage() {
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== activePlaceholderId)
             const updated = [...filtered, { placeholderId: activePlaceholderId, imageBase64 }]
-
-            // Auto-scroll to next unsigned placeholder after a brief delay
             setTimeout(() => scrollToNextUnsigned(activePlaceholderId, updated), 400)
-
             return updated
         })
         setModalOpen(false)
         setActivePlaceholderId(null)
     }
 
-    // ── Auto-scroll to next unsigned placeholder ───────────────────────────────
     const scrollToNextUnsigned = (justSignedId: string, currentSignatures: SignatureCapture[]) => {
         const signedIds = new Set(currentSignatures.map(s => s.placeholderId))
         const mine = placeholders.filter(p => p.is_mine)
-
-        // Find the index of the just-signed placeholder
         const justSignedIdx = mine.findIndex(p => p.id === justSignedId)
-
-        // Look for the next unsigned placeholder after the one just signed
         let nextUnsigned: PlaceholderData | null = null
         for (let i = justSignedIdx + 1; i < mine.length; i++) {
-            if (!signedIds.has(mine[i].id)) {
-                nextUnsigned = mine[i]
-                break
-            }
+            if (!signedIds.has(mine[i].id)) { nextUnsigned = mine[i]; break }
         }
-        // Wrap around: check from the beginning
         if (!nextUnsigned) {
             for (let i = 0; i < justSignedIdx; i++) {
-                if (!signedIds.has(mine[i].id)) {
-                    nextUnsigned = mine[i]
-                    break
-                }
+                if (!signedIds.has(mine[i].id)) { nextUnsigned = mine[i]; break }
             }
         }
-
-        if (!nextUnsigned) return // all signed
-
-        // Switch page if needed
+        if (!nextUnsigned) return
         if (nextUnsigned.page_number !== activePage) {
             setActivePage(nextUnsigned.page_number)
-            // Wait for page render, then scroll
             setTimeout(() => {
                 const el = placeholderRefs.current[nextUnsigned!.id]
                 el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -255,7 +239,6 @@ export default function SignPage() {
         }
     }
 
-    // ── Apply same signature (replication) ─────────────────────────────────────
     const handleApplySame = (placeholderId: string) => {
         if (signatures.length === 0) return
         const lastSig = signatures[signatures.length - 1]
@@ -268,12 +251,10 @@ export default function SignPage() {
     }
 
     const isPlaceholderSigned = (id: string) => signatures.some(s => s.placeholderId === id)
-    // Only require the current signer's own placeholders to be signed
     const myPlaceholders = placeholders.filter(p => p.is_mine)
     const allSigned = myPlaceholders.length > 0 && myPlaceholders.every(p => isPlaceholderSigned(p.id))
     const lastSignatureImage = signatures.length > 0 ? signatures[signatures.length - 1].imageBase64 : null
 
-    // ── Step 5: Submit signatures ──────────────────────────────────────────────
     const handleSubmit = async () => {
         setSubmitting(true)
         try {
@@ -295,9 +276,8 @@ export default function SignPage() {
         }
     }
 
-    // ── Decline ────────────────────────────────────────────────────────────────
     const handleDecline = async () => {
-        if (!confirm('Are you sure you want to decline signing this document? This action cannot be undone.')) return
+        if (!confirm('Are you sure you want to decline signing this document?')) return
         setSubmitting(true)
         try {
             const res = await fetch(`/api/sign/${token}/submit`, {
@@ -319,136 +299,149 @@ export default function SignPage() {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
-    // RENDER
-    // ════════════════════════════════════════════════════════════════════════════
     return (
-        <div className="min-h-screen">
-            {/* Header */}
-            <header className="page-header">
-                <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-600 to-brand-400 flex items-center justify-center text-xs">✍️</div>
-                    <span className="font-bold text-white text-sm">UtilSign</span>
-                    {documentName && <span className="text-slate-500 text-xs">· {documentName}</span>}
+        <div className="min-h-screen bg-gray-50">
+            {/* ── Unified Header ────────────────────────────────────────────────── */}
+            <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+                <div className="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-md bg-[#4C00FF] flex items-center justify-center">
+                            <PenTool className="w-5 h-5 text-white" />
+                        </div>
+                        <span className="font-bold text-lg text-gray-900 tracking-tight">UtilSign</span>
+                        {documentName && (
+                            <span className="text-gray-400 text-sm font-medium border-l border-gray-200 pl-3 ml-1 truncate max-w-[200px] md:max-w-md">
+                                {documentName}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </header>
 
-            <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+            <main className="max-w-5xl mx-auto px-6 py-10">
                 {/* ════════════ LOADING ════════════ */}
                 {state === 'loading' && (
-                    <div className="flex flex-col items-center justify-center py-32 animate-fade-in">
-                        <svg className="animate-spin h-8 w-8 text-brand-400 mb-4" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        <p className="text-slate-400 text-sm">Validating your signing link…</p>
+                    <div className="flex flex-col items-center justify-center py-32 animate-fade-in text-center">
+                        <div className="w-10 h-10 border-3 border-[#4C00FF] border-t-transparent rounded-full animate-spin mb-4" />
+                        <p className="text-gray-500 font-medium">Preparing your document for signing…</p>
+                        <p className="text-gray-400 text-xs mt-1">Verifying secure access link</p>
                     </div>
                 )}
 
                 {/* ════════════ ERROR ════════════ */}
                 {state === 'error' && (
-                    <div className="max-w-md mx-auto text-center py-32 animate-fade-in">
-                        <div className="text-5xl mb-4">
-                            {errorType === 'not_your_turn' ? '⏳' : errorType === 'already_signed' ? '✅' : '⚠️'}
+                    <div className="max-w-md mx-auto text-center py-24 animate-fade-in">
+                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
+                            {errorType === 'not_your_turn' ? <Clock className="w-10 h-10" /> : <AlertCircle className="w-10 h-10" />}
                         </div>
-                        <h2 className="text-xl font-bold text-white mb-2">
-                            {errorType === 'not_your_turn' ? 'Not Your Turn Yet' :
-                                errorType === 'already_signed' ? 'Already Signed' :
-                                    errorType === 'expired' ? 'Link Expired' : 'Something Went Wrong'}
+                        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                            {errorType === 'not_your_turn' ? 'Pending Signature' :
+                                errorType === 'already_signed' ? 'Document Finalized' :
+                                    errorType === 'expired' ? 'Link Expired' : 'Link Unavailable'}
                         </h2>
-                        <p className="text-slate-400 text-sm">{error}</p>
+                        <p className="text-gray-500 leading-relaxed mb-8">{error}</p>
+                        <button onClick={() => router.push('/')} className="btn-secondary w-full">Return Home</button>
                     </div>
                 )}
 
                 {/* ════════════ OTP ════════════ */}
                 {state === 'otp' && (
-                    <div className="max-w-md mx-auto text-center py-16 animate-fade-in">
-                        <div className="text-5xl mb-4">🔐</div>
-                        <h2 className="text-xl font-bold text-white mb-2">Verify Your Identity</h2>
-                        <p className="text-slate-400 text-sm mb-6">
-                            We sent a 6-digit verification code to <strong className="text-white">{signerEmail}</strong>
-                        </p>
-
-                        {otpError && (
-                            <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
-                                {otpError}
+                    <div className="max-w-md mx-auto animate-fade-in py-10">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden">
+                            <div className="bg-[#4C00FF] p-8 text-center text-white">
+                                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-4 border border-white/20">
+                                    <Lock className="w-6 h-6 text-white" />
+                                </div>
+                                <h2 className="text-xl font-bold">Secure Access Verification</h2>
+                                <p className="text-white/80 text-sm mt-1">Please verify your identity to continue</p>
                             </div>
-                        )}
 
-                        {/* OTP Input */}
-                        <div className="flex justify-center gap-2 mb-4">
-                            {[0, 1, 2, 3, 4, 5].map(i => (
-                                <input
-                                    key={i}
-                                    type="text"
-                                    maxLength={1}
-                                    className="w-12 h-14 text-center text-xl font-bold rounded-xl bg-slate-800 border border-slate-700 text-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 transition-all"
-                                    value={otp[i] || ''}
-                                    onChange={e => {
-                                        const val = e.target.value.replace(/\D/g, '')
-                                        if (!val) return
-                                        const newOtp = otp.split('')
-                                        newOtp[i] = val
-                                        const joined = newOtp.join('').slice(0, 6)
-                                        setOtp(joined)
-                                        // Auto-focus next
-                                        if (val && i < 5) {
-                                            const next = e.target.nextElementSibling as HTMLInputElement
-                                            next?.focus()
-                                        }
-                                    }}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Backspace' && !otp[i] && i > 0) {
-                                            const prev = (e.target as HTMLInputElement).previousElementSibling as HTMLInputElement
-                                            prev?.focus()
-                                            setOtp(prev => prev.slice(0, i - 1) + prev.slice(i))
-                                        }
-                                    }}
-                                    onPaste={e => {
-                                        e.preventDefault()
-                                        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
-                                        setOtp(pasted)
-                                    }}
-                                />
-                            ))}
+                            <div className="p-8 text-center">
+                                <p className="text-gray-500 text-sm mb-6 leading-relaxed">
+                                    A 6-digit verification code has been sent to:<br />
+                                    <strong className="text-gray-900 font-bold">{signerEmail}</strong>
+                                </p>
+
+                                {otpError && (
+                                    <div className="mb-6 px-4 py-3 rounded-lg bg-red-50 text-red-600 text-xs font-medium border border-red-100 animate-shake">
+                                        {otpError}
+                                    </div>
+                                )}
+
+                                <div className="flex justify-center gap-2 mb-6">
+                                    {[0, 1, 2, 3, 4, 5].map(i => (
+                                        <input
+                                            key={i}
+                                            type="text"
+                                            maxLength={1}
+                                            className="w-11 h-13 text-center text-xl font-bold rounded-lg bg-gray-50 border border-gray-200 text-gray-900 focus:border-[#4C00FF] focus:ring-4 focus:ring-[#4C00FF]/10 transition-all outline-none"
+                                            value={otp[i] || ''}
+                                            onChange={e => {
+                                                const val = e.target.value.replace(/\D/g, '')
+                                                if (!val) return
+                                                const newOtp = otp.split('')
+                                                newOtp[i] = val
+                                                const joined = newOtp.join('').slice(0, 6)
+                                                setOtp(joined)
+                                                if (i < 5) (e.target.nextElementSibling as HTMLInputElement)?.focus()
+                                            }}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Backspace' && !otp[i] && i > 0) {
+                                                    const prev = (e.target as HTMLInputElement).previousElementSibling as HTMLInputElement
+                                                    prev?.focus()
+                                                    setOtp(prev => prev.slice(0, i - 1) + prev.slice(i))
+                                                }
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+
+                                <div className="flex items-center justify-center gap-4 mb-8">
+                                    <span className="text-gray-400 text-xs font-medium flex items-center gap-1.5">
+                                        <Clock className="w-3 h-3" />
+                                        {countdown > 0 ? `Code expires in ${formatTime(countdown)}` : 'Link expired'}
+                                    </span>
+                                    <button
+                                        onClick={handleResendOTP}
+                                        disabled={resendCooldown > 0 || otpLoading}
+                                        className="text-[#4C00FF] font-bold text-xs hover:underline disabled:text-gray-400 disabled:no-underline"
+                                    >
+                                        {otpLoading ? 'Sending…' : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
+                                    </button>
+                                </div>
+
+                                <button
+                                    onClick={handleVerifyOTP}
+                                    disabled={otp.length !== 6 || otpLoading || countdown === 0}
+                                    className="w-full bg-[#4C00FF] text-white py-3.5 rounded-xl font-bold hover:bg-[#3D00CC] transition-all disabled:opacity-50 shadow-lg shadow-[#4C00FF]/20"
+                                >
+                                    {otpLoading ? 'Verifying…' : 'Review and Sign Document'}
+                                </button>
+
+                                <p className="text-[11px] text-gray-400 mt-6 flex items-center justify-center gap-1.5 uppercase tracking-wider font-semibold">
+                                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                    End-to-End Encrypted Secure Link
+                                </p>
+                            </div>
                         </div>
-
-                        <div className="flex items-center justify-center gap-4 mb-6">
-                            <span className="text-slate-500 text-xs">
-                                {countdown > 0 ? `Expires in ${formatTime(countdown)}` : 'Code expired'}
-                            </span>
-                            <button
-                                onClick={handleResendOTP}
-                                disabled={resendCooldown > 0 || otpLoading}
-                                className={`text-xs font-medium transition-colors ${resendCooldown > 0 || otpLoading ? 'text-slate-600 cursor-not-allowed' : 'text-brand-400 hover:text-brand-300'}`}
-                            >
-                                {otpLoading ? 'Sending…' : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
-                            </button>
-                        </div>
-
-                        <button
-                            onClick={handleVerifyOTP}
-                            disabled={otp.length !== 6 || otpLoading || countdown === 0}
-                            className="btn-primary w-full max-w-xs mx-auto"
-                        >
-                            {otpLoading ? 'Verifying…' : 'Verify & Continue'}
-                        </button>
                     </div>
                 )}
 
                 {/* ════════════ DOCUMENT VIEW ════════════ */}
                 {state === 'document' && (
                     <div className="animate-fade-in">
-                        <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center justify-between mb-8">
                             <div>
-                                <h2 className="text-lg font-bold text-white">Review & Sign</h2>
-                                <p className="text-slate-400 text-sm">Click on each highlighted area to add your signature.</p>
+                                <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Review & Sign</h2>
+                                <p className="text-gray-500 text-sm mt-1">Please review the document and sign at the highlighted locations.</p>
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-slate-400">
-                                <span>{signatures.length}/{myPlaceholders.length} signed</span>
-                                <div className="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                            <div className="hidden md:flex flex-col items-end gap-2">
+                                <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-widest">
+                                    <span>{signatures.length}/{myPlaceholders.length} signatures</span>
+                                </div>
+                                <div className="w-48 h-2 rounded-full bg-gray-200 overflow-hidden shadow-inner">
                                     <div
-                                        className="h-full rounded-full bg-brand-500 transition-all"
+                                        className="h-full rounded-full bg-emerald-500 transition-all duration-500"
                                         style={{ width: `${myPlaceholders.length > 0 ? (signatures.length / myPlaceholders.length) * 100 : 0}%` }}
                                     />
                                 </div>
@@ -457,20 +450,22 @@ export default function SignPage() {
 
                         {/* Page navigation */}
                         {pdfPages.length > 1 && (
-                            <div className="flex items-center gap-2 mb-4">
+                            <div className="flex items-center gap-2 mb-5">
                                 {pdfPages.map((_, i) => (
                                     <button
                                         key={i}
                                         onClick={() => setActivePage(i + 1)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activePage === i + 1
+                                                ? 'bg-[#4C00FF] text-white shadow-md'
+                                                : 'bg-white border border-gray-200 text-gray-400 hover:border-gray-300'
                                             }`}
                                     >Page {i + 1}</button>
                                 ))}
                             </div>
                         )}
 
-                        {/* PDF with placeholders */}
-                        <div className="relative inline-block border border-slate-700 rounded-xl overflow-hidden">
+                        {/* PDF Viewer */}
+                        <div className="relative inline-block border border-gray-100 rounded-2xl shadow-xl overflow-hidden bg-white">
                             {pdfPages[activePage - 1] && (
                                 <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="max-w-full" draggable={false} />
                             )}
@@ -478,44 +473,23 @@ export default function SignPage() {
                             {placeholders
                                 .filter(p => p.page_number === activePage)
                                 .map(p => {
-                                    // ── Read-only watermark for other signers' placeholders ──
                                     if (!p.is_mine) {
                                         return (
                                             <div
                                                 key={p.id}
-                                                title={`Reserved for: ${p.assigned_signer_email}`}
+                                                className="absolute border border-dashed border-gray-300 bg-gray-50/40 flex items-center justify-center rounded pointer-events-none"
                                                 style={{
-                                                    position: 'absolute',
                                                     left: `${p.x_percent}%`,
                                                     top: `${p.y_percent}%`,
                                                     width: `${p.width_percent}%`,
                                                     height: `${p.height_percent}%`,
-                                                    border: '1.5px dashed #4b5563',
-                                                    borderRadius: 4,
-                                                    opacity: 0.75,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    pointerEvents: 'none',
-                                                    overflow: 'hidden',
-                                                    background: 'rgba(75,85,99,0.08)',
                                                 }}
                                             >
-                                                <span style={{
-                                                    fontSize: '9px',
-                                                    color: '#6b7280',
-                                                    textAlign: 'center',
-                                                    padding: '2px 4px',
-                                                    wordBreak: 'break-all',
-                                                    lineHeight: 1.2,
-                                                }}>
-                                                    {p.assigned_signer_email}
-                                                </span>
+                                                <span className="text-[9px] text-gray-400 text-center px-1 font-medium truncate">Waiting: {p.assigned_signer_email.split('@')[0]}</span>
                                             </div>
                                         )
                                     }
 
-                                    // ── Clickable sign box for this signer's own placeholders ──
                                     const signed = isPlaceholderSigned(p.id)
                                     const sig = signatures.find(s => s.placeholderId === p.id)
                                     const canReplicateHere = !signed && lastSignatureImage
@@ -525,57 +499,40 @@ export default function SignPage() {
                                             key={p.id}
                                             ref={el => { placeholderRefs.current[p.id] = el }}
                                             className={`absolute transition-all ${signed
-                                                ? 'border-2 border-emerald-500 bg-emerald-500/10'
+                                                ? 'border-2 border-emerald-500 bg-emerald-50 border-solid'
                                                 : canReplicateHere
-                                                    ? 'border-2 border-amber-400 bg-amber-500/10'
-                                                    : 'border-2 border-brand-400 bg-brand-500/10 hover:bg-brand-500/20 animate-pulse-slow cursor-pointer'
+                                                    ? 'border-2 border-amber-500 bg-amber-50 border-solid'
+                                                    : 'border-2 border-[#4C00FF] bg-[#4C00FF]/5 hover:bg-[#4C00FF]/10 animate-pulse-slow cursor-pointer border-solid'
                                                 }`}
                                             style={{
                                                 left: `${p.x_percent}%`,
                                                 top: `${p.y_percent}%`,
                                                 width: `${p.width_percent}%`,
                                                 height: `${p.height_percent}%`,
+                                                borderRadius: '6px'
                                             }}
-                                            onClick={() => {
-                                                // Only open modal on direct click if no replication UI showing
-                                                if (!signed && !canReplicateHere) {
-                                                    handlePlaceholderClick(p.id)
-                                                }
-                                            }}
+                                            onClick={() => { if (!signed && !canReplicateHere) handlePlaceholderClick(p.id) }}
                                         >
                                             {signed && sig ? (
-                                                /* Already signed — show the signature */
-                                                <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain" />
+                                                <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain p-1" />
                                             ) : canReplicateHere ? (
-                                                /* Signature replication: preview + two buttons */
-                                                <div className="flex flex-col items-center justify-center h-full w-full gap-0.5 p-0.5" style={{ minHeight: 0 }}>
-                                                    <img
-                                                        src={lastSignatureImage}
-                                                        alt="Previous signature"
-                                                        className="object-contain opacity-50"
-                                                        style={{ maxHeight: '55%', maxWidth: '90%' }}
-                                                    />
-                                                    <div className="flex gap-1 flex-shrink-0">
+                                                <div className="flex flex-col items-center justify-center h-full w-full gap-1 p-1">
+                                                    <img src={lastSignatureImage} alt="Preview" className="object-contain opacity-30 max-h-[50%]" />
+                                                    <div className="flex gap-1 shrink-0">
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
-                                                            className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap"
-                                                            title="Apply same signature"
-                                                        >
-                                                            ✓ Apply Same
-                                                        </button>
+                                                            className="px-2 py-0.5 rounded-md text-[8px] font-bold bg-emerald-600 text-white shadow-sm"
+                                                        >✓ Apply Same</button>
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
-                                                            className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-slate-600 hover:bg-slate-500 text-white transition-colors whitespace-nowrap"
-                                                            title="Draw a new signature"
-                                                        >
-                                                            ✎ Sign New
-                                                        </button>
+                                                            className="px-2 py-0.5 rounded-md text-[8px] font-bold bg-gray-500 text-white shadow-sm"
+                                                        >✎ New</button>
                                                     </div>
                                                 </div>
                                             ) : (
-                                                /* First placeholder — Click to sign */
-                                                <div className="flex items-center justify-center h-full">
-                                                    <span className="text-brand-400 text-[10px] font-medium">✍ Click to sign</span>
+                                                <div className="flex flex-col items-center justify-center h-full gap-1">
+                                                    <PenTool className="w-4 h-4 text-[#4C00FF]" />
+                                                    <span className="text-[#4C00FF] text-[10px] font-bold uppercase tracking-tight">Sign Here</span>
                                                 </div>
                                             )}
                                         </div>
@@ -583,23 +540,30 @@ export default function SignPage() {
                                 })}
                         </div>
 
-                        {/* Action buttons */}
-                        <div className="flex items-center gap-3 mt-6">
-                            <button onClick={handleDecline} disabled={submitting} className="btn-danger text-sm">
-                                Decline
+                        {/* Sign Sticky Bottom Bar (Mobile/Table View) */}
+                        <div className="sticky bottom-8 mt-10 p-5 bg-white rounded-2xl border border-gray-100 shadow-2xl flex items-center justify-between gap-4 z-40">
+                            <button onClick={handleDecline} disabled={submitting} className="px-5 py-2.5 text-sm font-bold text-gray-400 hover:text-red-500 transition-colors">
+                                Decline to Sign
                             </button>
-                            <div className="flex-1" />
-                            <button
-                                onClick={handleSubmit}
-                                disabled={!allSigned || submitting}
-                                className="btn-primary text-sm"
-                            >
-                                {submitting ? 'Submitting…' : allSigned ? '✓ Submit Signatures' : `Sign all ${myPlaceholders.length} fields first`}
-                            </button>
+
+                            <div className="flex items-center gap-4">
+                                <div className="hidden sm:block text-right">
+                                    <p className="text-xs font-bold text-gray-900">{signatures.length > 0 ? `${signatures.length} of ${myPlaceholders.length} signed` : 'No fields signed yet'}</p>
+                                    <p className="text-[10px] text-gray-400 font-medium">Progress preserved locally</p>
+                                </div>
+                                <button
+                                    onClick={handleSubmit}
+                                    disabled={!allSigned || submitting}
+                                    className="px-8 py-3 rounded-xl bg-[#4C00FF] text-white font-bold text-sm hover:bg-[#3D00CC] transition-all shadow-lg shadow-[#4C00FF]/20 disabled:opacity-50 min-w-[200px]"
+                                >
+                                    {submitting ? 'Submitting…' : allSigned ? '✓ Finish and Submit' : `Sign ${myPlaceholders.length - signatures.length} more field${myPlaceholders.length - signatures.length !== 1 ? 's' : ''}`}
+                                </button>
+                            </div>
                         </div>
 
                         {error && (
-                            <div className="mt-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
+                            <div className="mt-4 px-4 py-3 rounded-xl bg-red-50 text-red-600 text-sm font-medium border border-red-100 animate-fade-in flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4" />
                                 {error}
                             </div>
                         )}
@@ -608,17 +572,35 @@ export default function SignPage() {
 
                 {/* ════════════ SUCCESS ════════════ */}
                 {state === 'success' && (
-                    <div className="max-w-md mx-auto text-center py-32 animate-fade-in">
-                        <div className="text-6xl mb-4">{error ? '🚫' : '🎉'}</div>
-                        <h2 className="text-2xl font-bold text-white mb-2">
-                            {error ? 'Declined' : 'Signed Successfully!'}
+                    <div className="max-w-md mx-auto text-center py-20 animate-fade-in">
+                        <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-8 text-emerald-500">
+                            <CheckCircle className="w-12 h-12" />
+                        </div>
+                        <h2 className="text-3xl font-bold text-gray-900 mb-3">
+                            {error ? 'Action Recorded' : 'Document Signed!'}
                         </h2>
-                        <p className="text-slate-400 text-sm mb-4">
-                            {error || 'Your signature has been recorded and burned into the document. You may close this tab.'}
+                        <p className="text-gray-500 leading-relaxed mb-10">
+                            {error || 'Thank you for your signature. The document has been securely processed and notified to the sender.'}
                         </p>
-                        <div className="card p-4 inline-block">
-                            <p className="text-slate-500 text-xs">Document: <span className="text-white">{documentName}</span></p>
-                            <p className="text-slate-500 text-xs">Email: <span className="text-white">{signerEmail}</span></p>
+
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 text-left space-y-3">
+                            <div className="flex items-center justify-between border-b border-gray-50 pb-2">
+                                <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Document</span>
+                                <span className="text-sm text-gray-900 font-medium truncate ml-4">{documentName}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Signed As</span>
+                                <span className="text-sm text-gray-900 font-medium">{signerEmail}</span>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3">
+                            <button onClick={() => window.print()} className="btn-secondary flex items-center justify-center gap-2">
+                                <Download className="w-4 h-4" /> Download Certificate
+                            </button>
+                            <button onClick={() => router.push('/')} className="py-3 text-sm font-bold text-[#4C00FF] hover:underline">
+                                Return to UtilSign Home
+                            </button>
                         </div>
                     </div>
                 )}

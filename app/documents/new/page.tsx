@@ -431,34 +431,36 @@ export default function NewDocumentPage() {
     // RENDER
     // ════════════════════════════════════════════════════════════════════════════
     return (
-        <div className="min-h-screen">
+        <div className="min-h-screen bg-gray-50">
             {/* Header */}
-            <header className="page-header">
-                <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => router.push('/dashboard')} className="text-slate-400 hover:text-white transition-colors">
+            <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-100 z-50">
+                <div className="max-w-6xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => router.push('/dashboard')} className="p-2 -ml-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all">
                             <ArrowLeft className="w-5 h-5" />
                         </button>
-                        <span className="font-bold text-white flex items-center gap-2">
-                            {isSelfSign ? <PenTool className="w-4 h-4 text-violet-400" /> : <Send className="w-4 h-4 text-sky-400" />}
-                            {isSelfSign ? 'Self Sign' : 'Request Sign'} — {isSelfSign ? 'New Document' : 'New Envelope'}
-                        </span>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{isSelfSign ? 'Self Sign' : 'Request Sign'}</span>
+                            <span className="text-sm font-bold text-gray-900 leading-none flex items-center gap-2">
+                                {isSelfSign ? <PenTool className="w-3.5 h-3.5 text-[#4C00FF]" /> : <Send className="w-3.5 h-3.5 text-[#4C00FF]" />}
+                                {isSelfSign ? 'New Document' : 'New Envelope'}
+                            </span>
+                        </div>
                     </div>
-                    {/* Stepper (hidden on success) */}
                     {step <= totalSteps && (
                         <div className="flex items-center gap-3">
                             {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
                                 <div key={s} className="flex items-center gap-2">
                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${step === s
-                                        ? (isSelfSign ? 'bg-violet-600 text-white shadow-lg shadow-violet-900/40' : 'bg-brand-600 text-white shadow-lg shadow-brand-900/40')
-                                        : step > s ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'
+                                        ? 'bg-[#4C00FF] text-gray-900 shadow-lg shadow-[#4C00FF]/20'
+                                        : step > s ? 'bg-emerald-500 text-gray-900' : 'bg-gray-100 text-gray-400'
                                         }`}>
-                                        {step > s ? '✓' : s}
+                                        {step > s ? '\u2713' : s}
                                     </div>
-                                    <span className={`text-xs hidden sm:block ${step === s ? 'text-white font-medium' : 'text-slate-500'}`}>
+                                    <span className={`text-xs hidden sm:block ${step === s ? 'text-gray-900 font-bold' : 'text-gray-400'}`}>
                                         {stepLabels[s - 1]}
                                     </span>
-                                    {s < totalSteps && <div className={`w-8 h-px ${step > s ? 'bg-emerald-600' : 'bg-slate-700'}`} />}
+                                    {s < totalSteps && <div className={`w-8 h-px ${step > s ? 'bg-emerald-500' : 'bg-gray-200'}`} />}
                                 </div>
                             ))}
                         </div>
@@ -469,24 +471,24 @@ export default function NewDocumentPage() {
 
             {/* Error */}
             {error && (
-                <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-4">
-                    <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
+                <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-20">
+                    <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm font-medium">
                         {error}
                     </div>
                 </div>
             )}
 
-            <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+            <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-24 pb-12">
                 {/* ════════════════ STEP 1: UPLOAD (self-sign) / ENVELOPE (request) ════════════════ */}
                 {step === 1 && isSelfSign && (
                     <div className="max-w-xl mx-auto animate-fade-in">
-                        <h2 className="text-xl font-bold text-white mb-2">Upload your document</h2>
-                        <p className="text-slate-400 text-sm mb-6">
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">Upload your document</h2>
+                        <p className="text-gray-500 text-sm mb-6">
                             Upload a PDF file (max 10MB) to sign it yourself.
                         </p>
                         <div
-                            className={`card p-12 border-2 border-dashed transition-all cursor-pointer text-center ${dragActive ? 'border-brand-500 bg-brand-500/5' :
-                                file ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-700 hover:border-slate-600'
+                            className={`bg-white rounded-2xl border p-12 border-2 border-dashed transition-all cursor-pointer text-center ${dragActive ? 'border-[#4C00FF] bg-[#4C00FF]/5' :
+                                file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
                                 }`}
                             onDragOver={e => { e.preventDefault(); setDragActive(true) }}
                             onDragLeave={() => setDragActive(false)}
@@ -502,26 +504,26 @@ export default function NewDocumentPage() {
                             />
                             {file ? (
                                 <div className="space-y-2">
-                                    <FileText className="w-8 h-8 text-emerald-400 mx-auto" />
-                                    <p className="text-white font-medium">{file.name}</p>
-                                    <p className="text-slate-400 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                                    <FileText className="w-8 h-8 text-emerald-600 mx-auto" />
+                                    <p className="text-gray-900 font-medium">{file.name}</p>
+                                    <p className="text-gray-400 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                                     <button
                                         onClick={e => { e.stopPropagation(); setFile(null) }}
-                                        className="text-red-400 text-xs hover:text-red-300 flex items-center gap-1 mx-auto"
+                                        className="text-red-600 text-xs hover:text-red-300 flex items-center gap-1 mx-auto"
                                     ><X className="w-3 h-3" /> Remove</button>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    <Upload className="w-10 h-10 text-slate-500 mx-auto" />
-                                    <p className="text-white font-medium">Drop your PDF here</p>
-                                    <p className="text-slate-500 text-xs">or click to browse</p>
+                                    <Upload className="w-10 h-10 text-gray-300 mx-auto" />
+                                    <p className="text-gray-900 font-medium">Drop your PDF here</p>
+                                    <p className="text-gray-400 text-xs">or click to browse</p>
                                 </div>
                             )}
                         </div>
                         <button
                             onClick={handleUpload}
                             disabled={!file || loading}
-                            className="btn-primary w-full mt-6"
+                            className="w-full mt-6 px-6 py-3 rounded-xl bg-[#4C00FF] text-sm font-bold text-gray-900 hover:bg-[#3C00CC] transition-all shadow-lg shadow-[#4C00FF]/20 disabled:opacity-50"
                         >
                             {loading ? 'Uploading…' : 'Upload & Continue'}
                         </button>
@@ -532,21 +534,21 @@ export default function NewDocumentPage() {
                 {step === 1 && !isSelfSign && (
                     <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
                         <div>
-                            <h2 className="text-xl font-bold text-white mb-1">Create your envelope</h2>
-                            <p className="text-slate-400 text-sm">Add your document, recipients, and an optional message.</p>
+                            <h2 className="text-xl font-bold text-gray-900 mb-1">Create your envelope</h2>
+                            <p className="text-gray-500 text-sm">Add your document, recipients, and an optional message.</p>
                         </div>
 
                         {/* ── Section 1: Add Document ── */}
-                        <div className="card p-6">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                             <div className="flex items-center gap-2 mb-4">
-                                <div className="w-7 h-7 rounded-lg bg-sky-600/15 border border-sky-500/20 flex items-center justify-center">
-                                    <FileText className="w-4 h-4 text-sky-400" />
+                                <div className="w-7 h-7 rounded-lg bg-[#4C00FF]/10 border border-[#4C00FF]/20 flex items-center justify-center">
+                                    <FileText className="w-4 h-4 text-[#4C00FF]" />
                                 </div>
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Add Document</h3>
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Add Document</h3>
                             </div>
                             <div
                                 className={`p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer text-center ${dragActive ? 'border-sky-500 bg-sky-500/5' :
-                                    file ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-700 hover:border-slate-600'
+                                    file ? 'border-emerald-500/40 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
                                     }`}
                                 onDragOver={e => { e.preventDefault(); setDragActive(true) }}
                                 onDragLeave={() => setDragActive(false)}
@@ -562,39 +564,39 @@ export default function NewDocumentPage() {
                                 />
                                 {file ? (
                                     <div className="flex items-center justify-center gap-3">
-                                        <FileText className="w-6 h-6 text-emerald-400" />
+                                        <FileText className="w-6 h-6 text-emerald-600" />
                                         <div className="text-left">
-                                            <p className="text-white font-medium text-sm">{file.name}</p>
-                                            <p className="text-slate-400 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                                            <p className="text-gray-900 font-medium text-sm">{file.name}</p>
+                                            <p className="text-gray-500 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                                         </div>
                                         <button
                                             onClick={e => { e.stopPropagation(); setFile(null) }}
-                                            className="text-red-400 hover:text-red-300 ml-2"
+                                            className="text-red-600 hover:text-red-300 ml-2"
                                         ><X className="w-4 h-4" /></button>
                                     </div>
                                 ) : (
                                     <div className="space-y-2">
-                                        <Upload className="w-8 h-8 text-slate-500 mx-auto" />
-                                        <p className="text-white font-medium text-sm">Drop your PDF here</p>
-                                        <p className="text-slate-500 text-xs">or click to browse · max 10MB</p>
+                                        <Upload className="w-8 h-8 text-gray-400 mx-auto" />
+                                        <p className="text-gray-900 font-medium text-sm">Drop your PDF here</p>
+                                        <p className="text-gray-400 text-xs">or click to browse · max 10MB</p>
                                     </div>
                                 )}
                             </div>
                         </div>
 
                         {/* ── Section 2: Add Recipients ── */}
-                        <div className="card p-6">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                             <div className="flex items-center gap-2 mb-4">
-                                <div className="w-7 h-7 rounded-lg bg-violet-600/15 border border-violet-500/20 flex items-center justify-center">
-                                    <User className="w-4 h-4 text-violet-400" />
+                                <div className="w-7 h-7 rounded-lg bg-[#4C00FF]/15 border border-[#4C00FF]/20 flex items-center justify-center">
+                                    <User className="w-4 h-4 text-[#4C00FF]" />
                                 </div>
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Add Recipients</h3>
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Add Recipients</h3>
                             </div>
                             <div className="space-y-3">
                                 {recipients.map((r, i) => (
-                                    <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
+                                    <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-gray-100/50 border border-gray-200/50">
                                         {/* Priority badge */}
-                                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
+                                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-gray-900 shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
                                             {i + 1}
                                         </div>
                                         {/* Name */}
@@ -630,7 +632,7 @@ export default function NewDocumentPage() {
                                                         ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
                                                     setRecipients(updated)
                                                 }}
-                                                className="text-slate-500 hover:text-white disabled:opacity-20 text-[10px] leading-none"
+                                                className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
                                             >▲</button>
                                             <button
                                                 disabled={i === recipients.length - 1}
@@ -639,14 +641,14 @@ export default function NewDocumentPage() {
                                                         ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
                                                     setRecipients(updated)
                                                 }}
-                                                className="text-slate-500 hover:text-white disabled:opacity-20 text-[10px] leading-none"
+                                                className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
                                             >▼</button>
                                         </div>
                                         {/* Remove */}
                                         {recipients.length > 1 && (
                                             <button
                                                 onClick={() => setRecipients(prev => prev.filter((_, j) => j !== i))}
-                                                className="text-red-400 hover:text-red-300 shrink-0"
+                                                className="text-red-600 hover:text-red-300 shrink-0"
                                             ><X className="w-4 h-4" /></button>
                                         )}
                                     </div>
@@ -660,27 +662,27 @@ export default function NewDocumentPage() {
                                 {userEmail && !recipients.some(r => r.email.toLowerCase() === userEmail.toLowerCase()) && (
                                     <button
                                         onClick={() => setRecipients(prev => [...prev, { name: userEmail.split('@')[0], email: userEmail }])}
-                                        className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all bg-blue-600 hover:bg-blue-500 text-white"
+                                        className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all bg-[#4C00FF] hover:bg-[#3C00CC] text-white shadow-sm"
                                     ><Plus className="w-3 h-3 inline mr-1" /> Add Me</button>
                                 )}
                             </div>
-                            <p className="text-slate-500 text-[11px] mt-3 flex items-center gap-1">
+                            <p className="text-gray-400 text-[11px] mt-3 flex items-center gap-1">
                                 <Info className="w-3 h-3" /> Priority order determines who signs first. Drag or use arrows to reorder.
                             </p>
                         </div>
 
                         {/* ── Section 3: Add Message ── */}
-                        <div className="card p-6">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <div className="w-7 h-7 rounded-lg bg-amber-600/15 border border-amber-500/20 flex items-center justify-center">
                                     <Mail className="w-4 h-4 text-amber-400" />
                                 </div>
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Add Message</h3>
-                                <span className="text-slate-500 text-[10px] ml-1">(optional)</span>
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Add Message</h3>
+                                <span className="text-gray-400 text-[10px] ml-1">(optional)</span>
                             </div>
                             <div className="space-y-3">
                                 <div>
-                                    <label className="text-xs font-medium text-slate-400 mb-1 block">Subject</label>
+                                    <label className="text-xs font-medium text-gray-500 mb-1 block">Subject</label>
                                     <input
                                         type="text"
                                         className="input text-sm"
@@ -690,7 +692,7 @@ export default function NewDocumentPage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-medium text-slate-400 mb-1 block">Message</label>
+                                    <label className="text-xs font-medium text-gray-500 mb-1 block">Message</label>
                                     <textarea
                                         className="input text-sm min-h-[80px] resize-y"
                                         placeholder="Add a personal message to your recipients (optional)"
@@ -703,13 +705,13 @@ export default function NewDocumentPage() {
                         </div>
 
                         {/* ── Section 4: Category ── */}
-                        <div className="card p-6">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <div className="w-7 h-7 rounded-lg bg-emerald-600/15 border border-emerald-500/20 flex items-center justify-center">
-                                    <FileText className="w-4 h-4 text-emerald-400" />
+                                    <FileText className="w-4 h-4 text-emerald-600" />
                                 </div>
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Category</h3>
-                                <span className="text-slate-500 text-[10px] ml-1">(optional)</span>
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Category</h3>
+                                <span className="text-gray-400 text-[10px] ml-1">(optional)</span>
                             </div>
                             <select
                                 value={category}
@@ -753,10 +755,10 @@ export default function NewDocumentPage() {
                         {/* ── Left Sidebar ── */}
                         <div className="w-72 shrink-0 space-y-4 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-1">
                             <div>
-                                <h2 className="text-lg font-bold text-white">
+                                <h2 className="text-lg font-bold text-gray-900">
                                     {isSelfSign ? 'Place your signature fields' : 'Place signature fields'}
                                 </h2>
-                                <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+                                <p className="text-gray-400 text-xs mt-1 leading-relaxed">
                                     {isSelfSign
                                         ? 'Click and drag on the PDF to place signature boxes.'
                                         : 'Click and drag on the PDF. Assign each placeholder to a signer.'}
@@ -765,24 +767,24 @@ export default function NewDocumentPage() {
 
                             {/* Self-sign: show who we're signing as */}
                             {isSelfSign && userEmail && (
-                                <div className="card p-3 border-violet-500/20 bg-violet-500/5">
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 border-[#4C00FF]/20 bg-[#4C00FF]/5">
                                     <div className="flex items-center gap-2">
-                                        <PenTool className="w-3.5 h-3.5 text-violet-400" />
-                                        <span className="text-xs font-medium text-violet-300">Signing as:</span>
-                                        <span className="text-xs text-white font-semibold">{userEmail}</span>
+                                        <PenTool className="w-3.5 h-3.5 text-[#4C00FF]" />
+                                        <span className="text-xs font-medium text-[#4C00FF]">Signing as:</span>
+                                        <span className="text-xs text-gray-900 font-semibold">{userEmail}</span>
                                     </div>
                                 </div>
                             )}
 
                             {/* Recipients list — read-only for request mode (set in Step 1) */}
                             {!isSelfSign && (
-                                <div className="card p-3">
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Recipients</p>
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Recipients</p>
                                     <div className="space-y-1.5">
                                         {signerEmails.filter(Boolean).map((email, i) => (
                                             <div key={i} className="flex items-center gap-1.5">
                                                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
-                                                <span className="text-xs text-slate-300 truncate">{email}</span>
+                                                <span className="text-xs text-gray-600 truncate">{email}</span>
                                                 <span className="text-[10px] text-slate-600 ml-auto shrink-0">#{i + 1}</span>
                                             </div>
                                         ))}
@@ -793,8 +795,8 @@ export default function NewDocumentPage() {
                             {/* Active signer selector (request mode only) */}
                             {
                                 !isSelfSign && signerEmails.filter(e => e.trim() !== '').length > 1 && (
-                                    <div className="card p-3">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Drawing for:</p>
+                                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Drawing for:</p>
                                         <div className="space-y-1">
                                             {signerEmails.map((email, i) => {
                                                 if (!email.trim()) return null
@@ -804,8 +806,8 @@ export default function NewDocumentPage() {
                                                         key={i}
                                                         onClick={() => setActiveSignerIndex(i)}
                                                         className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive
-                                                            ? 'border-white/30 text-white shadow-lg'
-                                                            : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                                                            ? 'border-[#4C00FF]/20 text-gray-900 shadow-sm'
+                                                            : 'border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-900'
                                                             }`}
                                                         style={isActive ? { background: SIGNER_COLORS[i % SIGNER_COLORS.length] + '33' } : {}}
                                                     >
@@ -823,14 +825,14 @@ export default function NewDocumentPage() {
                             {/* Page navigation */}
                             {
                                 pdfPages.length > 1 && (
-                                    <div className="card p-3">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Pages</p>
+                                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Pages</p>
                                         <div className="flex flex-wrap gap-1">
                                             {pdfPages.map((_, i) => (
                                                 <button
                                                     key={i}
                                                     onClick={() => setActivePage(i + 1)}
-                                                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-[#4C00FF] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                                                 >{i + 1}</button>
                                             ))}
                                         </div>
@@ -841,16 +843,16 @@ export default function NewDocumentPage() {
                             {/* Placeholder list */}
                             {
                                 placeholders.length > 0 && (
-                                    <div className="card p-3">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
                                             {placeholders.length} Placeholder{placeholders.length !== 1 ? 's' : ''}
                                         </p>
                                         <div className="space-y-1 max-h-40 overflow-y-auto">
                                             {placeholders.map(p => (
-                                                <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-slate-300 py-0.5">
+                                                <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-gray-600 py-0.5">
                                                     <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
                                                     <span className="truncate flex-1">P{p.pageNumber} — {p.assignedSignerEmail || 'unassigned'}</span>
-                                                    <button onClick={() => removePlaceholder(p.id)} className="text-red-400 hover:text-red-300 shrink-0">
+                                                    <button onClick={() => removePlaceholder(p.id)} className="text-red-600 hover:text-red-300 shrink-0">
                                                         <Trash2 className="w-3 h-3" />
                                                     </button>
                                                 </div>
@@ -875,7 +877,7 @@ export default function NewDocumentPage() {
                         < div className="flex-1 min-w-0" >
                             <div
                                 ref={pdfContainerRef}
-                                className="relative inline-block border border-slate-700 rounded-xl overflow-hidden cursor-crosshair select-none w-full"
+                                className="relative inline-block border border-gray-200 rounded-xl overflow-hidden cursor-crosshair select-none w-full"
                                 onMouseDown={handlePageMouseDown}
                                 onMouseMove={handlePageMouseMove}
                                 onMouseUp={handlePageMouseUp}
@@ -887,7 +889,7 @@ export default function NewDocumentPage() {
 
                                 {isDragging && (
                                     <div
-                                        className="absolute border-2 border-brand-400 bg-brand-500/10 pointer-events-none"
+                                        className="absolute border-2 border-brand-400 bg-[#4C00FF]/10 pointer-events-none"
                                         style={{
                                             left: `${Math.min(dragStart.x, dragCurrent.x)}%`,
                                             top: `${Math.min(dragStart.y, dragCurrent.y)}%`,
@@ -915,7 +917,7 @@ export default function NewDocumentPage() {
                                             <div className="absolute -top-7 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" style={{ zIndex: 50 }}>
                                                 {!isSelfSign && (
                                                     <select
-                                                        className="text-[10px] bg-slate-800 text-white rounded px-1 py-0.5 border border-slate-600"
+                                                        className="text-[10px] bg-gray-100 text-gray-900 rounded px-1 py-0.5 border border-gray-300"
                                                         value={p.assignedSignerEmail}
                                                         onChange={e => updatePlaceholderEmail(p.id, e.target.value)}
                                                         onClick={e => e.stopPropagation()}
@@ -927,7 +929,7 @@ export default function NewDocumentPage() {
                                                     </select>
                                                 )}
                                                 <button
-                                                    className="text-red-400 hover:text-red-300 bg-slate-800 rounded p-0.5"
+                                                    className="text-red-600 hover:text-red-300 bg-gray-100 rounded p-0.5"
                                                     onClick={e => { e.stopPropagation(); removePlaceholder(p.id) }}
                                                     onMouseDown={e => e.stopPropagation()}
                                                 ><X className="w-3 h-3" /></button>
@@ -950,12 +952,12 @@ export default function NewDocumentPage() {
                         <div className="animate-fade-in">
                             <div className="flex items-center justify-between mb-6">
                                 <div>
-                                    <h2 className="text-xl font-bold text-white">Sign Your Document</h2>
-                                    <p className="text-slate-400 text-sm mt-0.5">Click on each highlighted area to add your signature.</p>
+                                    <h2 className="text-xl font-bold text-gray-900">Sign Your Document</h2>
+                                    <p className="text-gray-500 text-sm mt-0.5">Click on each highlighted area to add your signature.</p>
                                 </div>
-                                <div className="flex items-center gap-2 text-xs text-slate-400">
+                                <div className="flex items-center gap-2 text-xs text-gray-500">
                                     <span>{signatures.length}/{placeholders.length} signed</span>
-                                    <div className="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                    <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden">
                                         <div
                                             className="h-full rounded-full bg-violet-500 transition-all"
                                             style={{ width: `${placeholders.length > 0 ? (signatures.length / placeholders.length) * 100 : 0}%` }}
@@ -971,14 +973,14 @@ export default function NewDocumentPage() {
                                         <button
                                             key={i}
                                             onClick={() => setActivePage(i + 1)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-[#4C00FF] text-gray-900' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                                         >Page {i + 1}</button>
                                     ))}
                                 </div>
                             )}
 
                             {/* PDF with signing placeholders */}
-                            <div className="relative inline-block border border-slate-700 rounded-xl overflow-hidden">
+                            <div className="relative inline-block border border-gray-200 rounded-xl overflow-hidden">
                                 {pdfPages[activePage - 1] && (
                                     <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="max-w-full" draggable={false} />
                                 )}
@@ -997,8 +999,8 @@ export default function NewDocumentPage() {
                                                 className={`absolute transition-all ${signed
                                                     ? 'border-2 border-emerald-500 bg-emerald-500/10'
                                                     : canReplicateHere
-                                                        ? 'border-2 border-amber-400 bg-amber-500/10'
-                                                        : 'border-2 border-violet-400 bg-violet-500/10 hover:bg-violet-500/20 animate-pulse-slow cursor-pointer'
+                                                        ? 'border-2 border-amber-500 bg-amber-50'
+                                                        : 'border-2 border-[#4C00FF] bg-[#4C00FF]/5 hover:bg-[#4C00FF]/10 animate-pulse-slow cursor-pointer'
                                                     }`}
                                                 style={{
                                                     left: `${p.xPercent}%`,
@@ -1027,13 +1029,13 @@ export default function NewDocumentPage() {
                                                             >✓ Apply Same</button>
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
-                                                                className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-slate-600 hover:bg-slate-500 text-white transition-colors whitespace-nowrap"
+                                                                className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-gray-600 hover:bg-gray-500 text-white transition-colors whitespace-nowrap"
                                                             >✎ Sign New</button>
                                                         </div>
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center justify-center h-full">
-                                                        <span className="text-violet-400 text-[10px] font-medium">✍ Click to sign</span>
+                                                        <span className="text-[#4C00FF] text-[10px] font-medium">✍ Click to sign</span>
                                                     </div>
                                                 )}
                                             </div>
@@ -1063,24 +1065,24 @@ export default function NewDocumentPage() {
                 {
                     step === 3 && !isSelfSign && (
                         <div className="max-w-xl mx-auto animate-fade-in">
-                            <h2 className="text-xl font-bold text-white mb-2">Review &amp; Send</h2>
-                            <p className="text-slate-400 text-sm mb-6">Review your envelope details and send for signing.</p>
+                            <h2 className="text-xl font-bold text-gray-900 mb-2">Review &amp; Send</h2>
+                            <p className="text-gray-500 text-sm mb-6">Review your envelope details and send for signing.</p>
 
                             {/* Signing order (read-only) */}
-                            <div className="card p-6 space-y-3">
-                                <p className="text-xs font-semibold text-slate-400 uppercase">Signing Order</p>
+                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+                                <p className="text-xs font-semibold text-gray-500 uppercase">Signing Order</p>
                                 {signers.map((s, i) => {
                                     const recipient = recipients.find(r => r.email.trim().toLowerCase() === s.email.toLowerCase())
                                     return (
-                                        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
-                                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: s.color }}>
+                                        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-100/50 border border-gray-200/50">
+                                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-gray-900" style={{ background: s.color }}>
                                                 {s.priority}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 {recipient?.name && (
-                                                    <p className="text-sm text-white font-medium truncate">{recipient.name}</p>
+                                                    <p className="text-sm text-gray-900 font-medium truncate">{recipient.name}</p>
                                                 )}
-                                                <p className="text-xs text-slate-400 truncate">{s.email}</p>
+                                                <p className="text-xs text-gray-500 truncate">{s.email}</p>
                                             </div>
                                         </div>
                                     )
@@ -1089,29 +1091,29 @@ export default function NewDocumentPage() {
 
                             {/* Email preview */}
                             {(emailSubject || emailMessage) && (
-                                <div className="card p-5 mt-4">
-                                    <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Email Preview</p>
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mt-4">
+                                    <p className="text-xs font-semibold text-gray-500 uppercase mb-3">Email Preview</p>
                                     {emailSubject && (
                                         <div className="mb-2">
-                                            <span className="text-[10px] text-slate-500 uppercase">Subject:</span>
-                                            <p className="text-sm text-white">{emailSubject}</p>
+                                            <span className="text-[10px] text-gray-400 uppercase">Subject:</span>
+                                            <p className="text-sm text-gray-900">{emailSubject}</p>
                                         </div>
                                     )}
                                     {emailMessage && (
                                         <div>
-                                            <span className="text-[10px] text-slate-500 uppercase">Message:</span>
-                                            <p className="text-sm text-slate-300 whitespace-pre-wrap">{emailMessage}</p>
+                                            <span className="text-[10px] text-gray-400 uppercase">Message:</span>
+                                            <p className="text-sm text-gray-600 whitespace-pre-wrap">{emailMessage}</p>
                                         </div>
                                     )}
                                 </div>
                             )}
 
-                            <div className="card p-4 mt-4 border-brand-800/40 bg-brand-950/20">
+                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mt-4 border-[#4C00FF]/20 bg-[#4C00FF]/5">
                                 <div className="flex items-start gap-3">
-                                    <Info className="w-5 h-5 text-brand-400 shrink-0 mt-0.5" />
-                                    <div className="text-sm text-slate-300">
-                                        <p className="font-medium text-white mb-1">Priority-based signing</p>
-                                        <p className="text-slate-400 text-xs leading-relaxed">
+                                    <Info className="w-5 h-5 text-[#4C00FF] shrink-0 mt-0.5" />
+                                    <div className="text-sm text-gray-600">
+                                        <p className="font-medium text-gray-900 mb-1">Priority-based signing</p>
+                                        <p className="text-gray-500 text-xs leading-relaxed">
                                             Signer #1 will receive an email first. After they sign, signer #2 will be notified, and so on.
                                             Each signer will verify their identity with a one-time code before signing.
                                         </p>
@@ -1134,8 +1136,8 @@ export default function NewDocumentPage() {
                     step === 4 && isSelfSign && (
                         <div className="max-w-md mx-auto text-center py-20 animate-fade-in">
                             <div className="text-6xl mb-4">🎉</div>
-                            <h2 className="text-2xl font-bold text-white mb-2">Document Signed!</h2>
-                            <p className="text-slate-400 text-sm mb-6">
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Document Signed!</h2>
+                            <p className="text-gray-500 text-sm mb-6">
                                 Your signatures have been burned into the document. It&apos;s ready to download or share.
                             </p>
                             <div className="flex flex-col sm:flex-row gap-3 justify-center">

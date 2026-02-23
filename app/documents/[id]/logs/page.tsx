@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import { ArrowLeft, History, FileText, User, Mail, ShieldAlert, CheckCircle2, AlertCircle, Eye, PenTool, Flame, Ban, ArrowRight, PartyPopper, Download, Info } from 'lucide-react'
 
 interface AuditLog {
     id: string
@@ -13,74 +14,55 @@ interface AuditLog {
     signer_id: string | null
 }
 
-const EVENT_LABELS: Record<string, string> = {
-    document_created: 'Document created',
-    document_sent: 'Sent for signature',
-    email_delivered: 'Signing email sent',
-    link_opened: 'Opened signing link',
-    otp_sent: 'OTP sent',
-    otp_verified: 'Verified identity',
-    otp_failed: 'Wrong OTP entered',
-    otp_locked: 'Locked out after failed attempts',
-    placeholder_viewed: 'Viewed the document',
-    signature_submitted: 'Submitted signature',
-    pdf_burned: 'Signature burned into document',
-    signer_declined: 'Declined to sign',
-    next_signer_notified: 'Signing request sent to next signer',
-    document_completed: 'Document fully signed by all parties',
-    document_downloaded: 'Downloaded the completed document',
-}
-
-const EVENT_ICONS: Record<string, string> = {
-    document_created: '📄', document_sent: '📤', email_delivered: '✉️',
-    link_opened: '🔗', otp_sent: '🔐', otp_verified: '✅', otp_failed: '❌',
-    otp_locked: '🔒', placeholder_viewed: '👁️', signature_submitted: '✍️',
-    pdf_burned: '🔥', signer_declined: '🚫', next_signer_notified: '➡️',
-    document_completed: '🎉', document_downloaded: '⬇️',
-}
-
-const EVENT_COLORS: Record<string, string> = {
-    document_created: 'border-slate-600', document_sent: 'border-blue-500',
-    email_delivered: 'border-blue-400', link_opened: 'border-cyan-500',
-    otp_sent: 'border-amber-500', otp_verified: 'border-emerald-500',
-    otp_failed: 'border-red-500', otp_locked: 'border-red-600',
-    placeholder_viewed: 'border-purple-500', signature_submitted: 'border-brand-500',
-    pdf_burned: 'border-orange-500', signer_declined: 'border-red-500',
-    next_signer_notified: 'border-blue-500', document_completed: 'border-emerald-500',
-    document_downloaded: 'border-emerald-400',
+const EVENT_CONFIG: Record<string, { label: string; icon: any; color: string; bgColor: string }> = {
+    document_created: { label: 'Document Created', icon: FileText, color: 'text-gray-400', bgColor: 'bg-gray-50' },
+    document_sent: { label: 'Envelope Sent', icon: Mail, color: 'text-blue-500', bgColor: 'bg-blue-50' },
+    email_delivered: { label: 'Email Delivered', icon: Mail, color: 'text-blue-400', bgColor: 'bg-blue-50' },
+    link_opened: { label: 'Signing Link Opened', icon: Eye, color: 'text-cyan-500', bgColor: 'bg-cyan-50' },
+    otp_sent: { label: 'Identity Code Sent', icon: ShieldAlert, color: 'text-amber-500', bgColor: 'bg-amber-50' },
+    otp_verified: { label: 'Identity Verified', icon: CheckCircle2, color: 'text-emerald-500', bgColor: 'bg-emerald-50' },
+    otp_failed: { label: 'Verification Failed', icon: AlertCircle, color: 'text-red-500', bgColor: 'bg-red-50' },
+    otp_locked: { label: 'Account Locked', icon: Ban, color: 'text-red-600', bgColor: 'bg-red-50' },
+    placeholder_viewed: { label: 'Document Viewed', icon: Eye, color: 'text-purple-500', bgColor: 'bg-purple-50' },
+    signature_submitted: { label: 'Signature Applied', icon: PenTool, color: 'text-[#4C00FF]', bgColor: 'bg-[#4C00FF]/5' },
+    pdf_burned: { label: 'Document Hardened', icon: Flame, color: 'text-orange-500', bgColor: 'bg-orange-50' },
+    signer_declined: { label: 'Declined to Sign', icon: Ban, color: 'text-red-500', bgColor: 'bg-red-50' },
+    next_signer_notified: { label: 'Sequence Advanced', icon: ArrowRight, color: 'text-blue-500', bgColor: 'bg-blue-50' },
+    document_completed: { label: 'Envelope Completed', icon: PartyPopper, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+    document_downloaded: { label: 'Document Downloaded', icon: Download, color: 'text-gray-600', bgColor: 'bg-gray-50' },
 }
 
 function formatEventLabel(log: AuditLog): string {
-    const base = EVENT_LABELS[log.event_type] ?? log.event_type
+    const config = EVENT_CONFIG[log.event_type]
     const email = log.actor_email
     const meta = log.metadata
 
     switch (log.event_type) {
         case 'email_delivered':
-            return `Signing email sent to ${(meta?.to as string) || email}`
+            return `Envelope delivered to ${(meta?.to as string) || email}`
         case 'link_opened':
-            return `${email} opened their signing link`
+            return `${email} accessed the document via secure link`
         case 'otp_sent':
-            return `OTP sent to ${email}`
+            return `One-time passcode sent to ${email}`
         case 'otp_verified':
-            return `${email} verified their identity`
+            return `Identity of ${email} successfully verified`
         case 'otp_failed': {
             const attempt = (meta?.attempt as number) ?? '?'
             const max = (meta?.maxAttempts as number) ?? 3
-            return `${email} entered wrong OTP (attempt ${attempt} of ${max})`
+            return `Failed verification attempt (${attempt}/${max}) by ${email}`
         }
         case 'otp_locked':
-            return `${email} locked out after 3 failed attempts`
+            return `Security lockout: ${email} exceeded maximum attempts`
         case 'placeholder_viewed':
-            return `${email} viewed the document`
+            return `${email} is currently viewing the document`
         case 'signature_submitted':
-            return `${email} submitted their signature`
+            return `${email} confirmed signature placement`
         case 'signer_declined':
-            return `${email} declined to sign`
+            return `${email} declined the request to sign`
         case 'next_signer_notified':
-            return `Signing request sent to ${(meta?.to as string) || 'next signer'}`
+            return `Request automatically forwarded to ${(meta?.to as string) || 'next recipient'}`
         default:
-            return base
+            return config?.label || log.event_type
     }
 }
 
@@ -110,92 +92,123 @@ export default function AuditLogsPage() {
     }, [documentId])
 
     return (
-        <div className="min-h-screen">
-            <header className="page-header">
-                <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => router.back()} className="text-slate-400 hover:text-white transition-colors">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
+        <div className="min-h-screen bg-gray-50">
+            {/* ── Header ───────────────────────────────────────────────────────── */}
+            <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-100 z-50">
+                <div className="max-w-[1000px] mx-auto px-6 h-full flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => router.push(`/documents/${documentId}/status`)}
+                            className="p-2 -ml-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all"
+                        >
+                            <ArrowLeft className="w-5 h-5" />
                         </button>
-                        <span className="font-bold text-white">Audit Log</span>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Security</span>
+                            <h1 className="text-sm font-bold text-gray-900 leading-none">Audit History</h1>
+                        </div>
                     </div>
-                    <Link href={`/documents/${documentId}/status`} className="btn-secondary text-xs px-3 py-1.5">
-                        ← Status
+                    <Link
+                        href={`/documents/${documentId}/status`}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-gray-600 font-bold text-xs hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100"
+                    >
+                        Return to Status
                     </Link>
                 </div>
             </header>
 
-            {error && (
-                <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-4">
-                    <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">{error}</div>
-                </div>
-            )}
-
-            <main className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
-                <h2 className="text-xl font-bold text-white mb-2">Activity Timeline</h2>
-                <p className="text-slate-400 text-sm mb-8">Complete chronological record of all actions on this document.</p>
-
-                {loading ? (
-                    <div className="flex items-center justify-center py-16 text-slate-400">
-                        <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        Loading logs…
-                    </div>
-                ) : logs.length === 0 ? (
-                    <div className="card p-12 text-center">
-                        <p className="text-slate-400">No activity recorded yet.</p>
-                    </div>
-                ) : (
-                    <div className="relative">
-                        {/* Timeline line */}
-                        <div className="absolute left-5 top-0 bottom-0 w-px bg-slate-800" />
-
-                        <div className="space-y-4">
-                            {logs.map((log) => (
-                                <div key={log.id} className="relative pl-14 animate-fade-in">
-                                    {/* Timeline dot */}
-                                    <div className={`absolute left-3 top-4 w-4 h-4 rounded-full border-2 bg-slate-950 ${EVENT_COLORS[log.event_type] ?? 'border-slate-600'}`} />
-
-                                    <div className="card-hover p-4">
-                                        <div className="flex items-start gap-3">
-                                            <span className="text-lg flex-shrink-0">{EVENT_ICONS[log.event_type] ?? '📋'}</span>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-white text-sm font-medium">{formatEventLabel(log)}</p>
-                                                <div className="flex items-center gap-3 mt-1">
-                                                    <span className="text-slate-500 text-xs">
-                                                        {new Date(log.created_at).toLocaleDateString(undefined, {
-                                                            month: 'short', day: 'numeric', year: 'numeric',
-                                                        })}{' '}
-                                                        at{' '}
-                                                        {new Date(log.created_at).toLocaleTimeString(undefined, {
-                                                            hour: '2-digit', minute: '2-digit', second: '2-digit',
-                                                        })}
-                                                    </span>
-                                                    <span className="text-slate-600 text-xs">·</span>
-                                                    <span className="text-slate-500 text-xs truncate">{log.actor_email}</span>
-                                                </div>
-                                                {/* Metadata */}
-                                                {Object.keys(log.metadata).length > 0 && (
-                                                    <div className="mt-2 px-3 py-1.5 rounded-lg bg-slate-800/50 text-xs text-slate-500 font-mono">
-                                                        {Object.entries(log.metadata).map(([k, v]) => (
-                                                            <span key={k} className="mr-3">
-                                                                {k}: <span className="text-slate-400">{String(v)}</span>
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+            <main className="pt-24 pb-20 px-6">
+                <div className="max-w-3xl mx-auto space-y-8">
+                    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 px-2">
+                        <div>
+                            <h2 className="text-2xl font-black text-gray-900">Document Timeline</h2>
+                            <p className="text-sm text-gray-500 mt-1">Full tamper-evident record of all envelope activities.</p>
+                        </div>
+                        <div className="bg-[#4C00FF]/5 rounded-lg px-3 py-1.5 flex items-center gap-2 border border-[#4C00FF]/10">
+                            <History className="w-3.5 h-3.5 text-[#4C00FF]" />
+                            <span className="text-[10px] font-bold text-[#4C00FF] uppercase tracking-wider">{logs.length} Total Events</span>
                         </div>
                     </div>
-                )}
+
+                    {error && (
+                        <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700 font-medium">
+                            {error}
+                        </div>
+                    )}
+
+                    {loading ? (
+                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                            <div className="w-10 h-10 border-4 border-[#4C00FF]/10 border-t-[#4C00FF] rounded-full animate-spin" />
+                            <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">Compiling history…</p>
+                        </div>
+                    ) : logs.length === 0 ? (
+                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-20 text-center">
+                            <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                                <Info className="w-8 h-8 text-gray-300" />
+                            </div>
+                            <h3 className="text-gray-900 font-bold mb-2">No activity recorded</h3>
+                            <p className="text-sm text-gray-400">Actions will appear here as the document is processed.</p>
+                        </div>
+                    ) : (
+                        <div className="relative">
+                            {/* Vertical timeline line */}
+                            <div className="absolute left-[2.25rem] top-0 bottom-0 w-px bg-gray-100 z-0" />
+
+                            <div className="space-y-6">
+                                {logs.map((log, i) => {
+                                    const config = EVENT_CONFIG[log.event_type]
+                                    const Icon = config?.icon || Info
+                                    return (
+                                        <div key={log.id} className="relative pl-16 animate-fade-in group">
+                                            {/* Timeline indicator dot */}
+                                            <div className={`absolute left-[1.5rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-4 border-gray-50 flex items-center justify-center transition-all z-10 ${log.event_type === 'document_completed' ? 'bg-emerald-500' :
+                                                log.event_type === 'signature_submitted' ? 'bg-[#4C00FF]' :
+                                                    'bg-white border-gray-100'
+                                                }`} />
+
+                                            <div className="bg-white rounded-2xl border border-gray-100 p-5 flex items-start gap-5 relative z-10 transition-all group-hover:border-[#4C00FF]/20 group-hover:shadow-lg group-hover:shadow-gray-200/50">
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm border ${config?.bgColor || 'bg-gray-50'} ${config?.color || 'text-gray-400'} border-transparent`}>
+                                                    <Icon className="w-5 h-5" />
+                                                </div>
+
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
+                                                        <h4 className="text-sm font-bold text-gray-900 leading-none">{formatEventLabel(log)}</h4>
+                                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter shrink-0">
+                                                            {new Date(log.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex flex-wrap items-center gap-3">
+                                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-gray-50 border border-gray-100">
+                                                            <User className="w-3 h-3 text-gray-400" />
+                                                            <span className="text-[10px] font-bold text-gray-500 truncate max-w-[200px]">{log.actor_email}</span>
+                                                        </div>
+                                                        <span className="text-[10px] text-gray-300 font-bold uppercase tracking-widest leading-none">
+                                                            {new Date(log.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Metadata Expansion */}
+                                                    {Object.keys(log.metadata).length > 0 && (
+                                                        <div className="mt-3 pt-3 border-t border-gray-50 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                            {Object.entries(log.metadata).map(([k, v]) => (
+                                                                <div key={k} className="flex flex-col gap-0.5">
+                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">{k}</span>
+                                                                    <span className="text-[10px] font-mono text-gray-600 truncate">{String(v)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
             </main>
         </div>
     )

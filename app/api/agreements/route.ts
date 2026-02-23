@@ -27,37 +27,71 @@ export async function GET(req: NextRequest) {
 
                 const docIds = Array.from(new Set((signerRows ?? []).map(r => r.document_id)))
                 if (docIds.length > 0) {
-                    const { data } = await admin
+                    const { data, error } = await admin
                         .from('documents')
                         .select('id, file_name, status, type, category, created_at, updated_at')
                         .in('id', docIds)
-                        .is('deleted_at', null)
                         .order('created_at', { ascending: false })
-                    results = data ?? []
+
+                    if (error) {
+                        const { data: fallback } = await admin
+                            .from('documents')
+                            .select('id, file_name, status, type, created_at')
+                            .in('id', docIds)
+                            .order('created_at', { ascending: false })
+                        results = fallback ?? []
+                    } else {
+                        results = data ?? []
+                    }
                 }
                 break
             }
             case 'sent': {
-                const { data } = await admin
+                const { data, error } = await admin
                     .from('documents')
                     .select('id, file_name, status, type, category, created_at, updated_at')
                     .eq('sender_id', user.id)
                     .eq('type', 'request_sign')
                     .in('status', ['sent', 'in_progress'])
-                    .is('deleted_at', null)
                     .order('created_at', { ascending: false })
-                results = data ?? []
+
+                if (error) {
+                    const { data: fallback } = await admin
+                        .from('documents')
+                        .select('id, file_name, status, type, created_at')
+                        .eq('sender_id', user.id)
+                        .eq('type', 'request_sign')
+                        .in('status', ['sent', 'in_progress'])
+                        .order('created_at', { ascending: false })
+                    results = fallback ?? []
+                } else {
+                    results = data ?? []
+                }
                 break
             }
             case 'completed': {
                 // Docs I sent that are completed, OR docs where I signed
-                const { data: myDocs } = await admin
+                const query = admin
                     .from('documents')
                     .select('id, file_name, status, type, category, created_at, updated_at')
                     .eq('sender_id', user.id)
                     .eq('status', 'completed')
-                    .is('deleted_at', null)
                     .order('created_at', { ascending: false })
+
+                const { data: myDocs, error: myError } = await query
+                let finalMyDocs = []
+
+                if (myError) {
+                    const { data: fallback } = await admin
+                        .from('documents')
+                        .select('id, file_name, status, type, created_at')
+                        .eq('sender_id', user.id)
+                        .eq('status', 'completed')
+                        .order('created_at', { ascending: false })
+                    finalMyDocs = fallback ?? []
+                } else {
+                    finalMyDocs = myDocs ?? []
+                }
 
                 const { data: signedRows } = await admin
                     .from('signers')
@@ -66,20 +100,29 @@ export async function GET(req: NextRequest) {
                     .eq('status', 'signed')
 
                 const signedDocIds = Array.from(new Set((signedRows ?? []).map(r => r.document_id)))
-                    .filter(id => !(myDocs ?? []).some(d => d.id === id))
+                    .filter(id => !finalMyDocs.some(d => d.id === id))
 
                 let signedDocs: Record<string, unknown>[] = []
                 if (signedDocIds.length > 0) {
-                    const { data } = await admin
+                    const { data, error: sError } = await admin
                         .from('documents')
                         .select('id, file_name, status, type, category, created_at, updated_at')
                         .in('id', signedDocIds)
-                        .is('deleted_at', null)
                         .order('created_at', { ascending: false })
-                    signedDocs = data ?? []
+
+                    if (sError) {
+                        const { data: fallback } = await admin
+                            .from('documents')
+                            .select('id, file_name, status, type, created_at')
+                            .in('id', signedDocIds)
+                            .order('created_at', { ascending: false })
+                        signedDocs = fallback ?? []
+                    } else {
+                        signedDocs = data ?? []
+                    }
                 }
 
-                results = [...(myDocs ?? []), ...signedDocs]
+                results = [...finalMyDocs, ...signedDocs]
                 break
             }
             case 'action_required': {
@@ -92,26 +135,46 @@ export async function GET(req: NextRequest) {
 
                 const docIds = Array.from(new Set((signerRows ?? []).map(r => r.document_id)))
                 if (docIds.length > 0) {
-                    const { data } = await admin
+                    const { data, error } = await admin
                         .from('documents')
                         .select('id, file_name, status, type, category, created_at, updated_at')
                         .in('id', docIds)
                         .in('status', ['sent', 'in_progress'])
-                        .is('deleted_at', null)
                         .order('created_at', { ascending: false })
-                    results = data ?? []
+
+                    if (error) {
+                        const { data: fallback } = await admin
+                            .from('documents')
+                            .select('id, file_name, status, type, created_at')
+                            .in('id', docIds)
+                            .in('status', ['sent', 'in_progress'])
+                            .order('created_at', { ascending: false })
+                        results = fallback ?? []
+                    } else {
+                        results = data ?? []
+                    }
                 }
                 break
             }
             case 'drafts': {
-                const { data } = await admin
+                const { data, error } = await admin
                     .from('documents')
                     .select('id, file_name, status, type, category, created_at, updated_at')
                     .eq('sender_id', user.id)
                     .eq('status', 'draft')
-                    .is('deleted_at', null)
                     .order('created_at', { ascending: false })
-                results = data ?? []
+
+                if (error) {
+                    const { data: fallback } = await admin
+                        .from('documents')
+                        .select('id, file_name, status, type, created_at')
+                        .eq('sender_id', user.id)
+                        .eq('status', 'draft')
+                        .order('created_at', { ascending: false })
+                    results = fallback ?? []
+                } else {
+                    results = data ?? []
+                }
                 break
             }
             case 'deleted': {
@@ -126,14 +189,24 @@ export async function GET(req: NextRequest) {
             }
             case 'waiting': {
                 // Docs I sent that are waiting for others to sign
-                const { data } = await admin
+                const { data, error } = await admin
                     .from('documents')
                     .select('id, file_name, status, type, category, created_at, updated_at')
                     .eq('sender_id', user.id)
                     .in('status', ['sent', 'in_progress'])
-                    .is('deleted_at', null)
                     .order('created_at', { ascending: false })
-                results = data ?? []
+
+                if (error) {
+                    const { data: fallback } = await admin
+                        .from('documents')
+                        .select('id, file_name, status, type, created_at')
+                        .eq('sender_id', user.id)
+                        .in('status', ['sent', 'in_progress'])
+                        .order('created_at', { ascending: false })
+                    results = fallback ?? []
+                } else {
+                    results = data ?? []
+                }
                 break
             }
             case 'expiring': {
@@ -141,15 +214,26 @@ export async function GET(req: NextRequest) {
                 const twentyFiveDaysAgo = new Date()
                 twentyFiveDaysAgo.setDate(twentyFiveDaysAgo.getDate() - 25)
 
-                const { data } = await admin
+                const { data, error } = await admin
                     .from('documents')
                     .select('id, file_name, status, type, category, created_at, updated_at')
                     .eq('sender_id', user.id)
                     .lt('created_at', twentyFiveDaysAgo.toISOString())
                     .not('status', 'in', '("completed","cancelled")')
-                    .is('deleted_at', null)
                     .order('created_at', { ascending: false })
-                results = data ?? []
+
+                if (error) {
+                    const { data: fallback } = await admin
+                        .from('documents')
+                        .select('id, file_name, status, type, created_at')
+                        .eq('sender_id', user.id)
+                        .lt('created_at', twentyFiveDaysAgo.toISOString())
+                        .not('status', 'in', '("completed","cancelled")')
+                        .order('created_at', { ascending: false })
+                    results = fallback ?? []
+                } else {
+                    results = data ?? []
+                }
                 break
             }
             default:
