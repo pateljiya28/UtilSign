@@ -47,7 +47,11 @@ export async function POST(req: NextRequest) {
         }
 
         // ── Insert document row ───────────────────────────────────────────────────
-        const { data: doc, error: insertError } = await admin
+        let doc: { id: string } | null = null
+        let insertError: any = null
+
+        // Try with all columns first
+        const result1 = await admin
             .from('documents')
             .insert({
                 sender_id: user.id,
@@ -60,8 +64,37 @@ export async function POST(req: NextRequest) {
             .select('id')
             .single()
 
+        if (result1.error) {
+            console.error('[upload] Insert with category failed:', result1.error.message, result1.error.code, result1.error.details)
+            // Fallback: try without category (migration 002 may not have been run)
+            const result2 = await admin
+                .from('documents')
+                .insert({
+                    sender_id: user.id,
+                    file_path: storagePath,
+                    file_name: file.name,
+                    status: 'draft',
+                    type: docType,
+                })
+                .select('id')
+                .single()
+
+            if (result2.error) {
+                console.error('[upload] Insert without category also failed:', result2.error.message, result2.error.code, result2.error.details)
+                insertError = result2.error
+            } else {
+                doc = result2.data
+            }
+        } else {
+            doc = result1.data
+        }
+
         if (insertError || !doc) {
-            return NextResponse.json({ error: 'Failed to create document record' }, { status: 500 })
+            return NextResponse.json({
+                error: 'Failed to create document record',
+                detail: insertError?.message ?? 'Unknown insert error',
+                code: insertError?.code,
+            }, { status: 500 })
         }
 
         await logEvent({

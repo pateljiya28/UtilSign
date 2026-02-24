@@ -137,6 +137,38 @@ html.light .text-slate-500 {
   color: #9ca3af !important;
 }
 
+html.light .text-slate-600 {
+  color: #d1d5db !important;
+}
+
+/* Placeholder overrides for inputs */
+html.light .placeholder-slate-500::placeholder {
+  color: #9ca3af !important;
+}
+
+/* Hover background overrides */
+html.light .hover\:bg-slate-800\/60:hover,
+html.light .hover\:bg-slate-800\/40:hover,
+html.light .hover\:bg-slate-800:hover {
+  background-color: rgba(243, 244, 246, 0.8) !important;
+}
+
+html.light .hover\:text-white:hover {
+  color: #111827 !important;
+}
+
+html.light .hover\:border-slate-700:hover {
+  border-color: rgba(156, 163, 175, 0.6) !important;
+}
+
+/* Form controls (select, input in-page) */
+html.light select[class*="bg-slate"],
+html.light input[class*="bg-slate"] {
+  background-color: #ffffff !important;
+  border-color: rgba(209, 213, 219, 0.6) !important;
+  color: #111827 !important;
+}
+
 /* ── Background overrides ────────────────────────────────────────────────── */
 html.light .bg-slate-950 {
   background-color: #f9fafb !important;
@@ -254,6 +286,10 @@ body {
 .card,
 .input,
 .btn-secondary,
-.page-header {
+.page-header,
+[class*="bg-slate-"],
+[class*="border-slate-"],
+[class*="text-slate-"],
+[class*="text-white"] {
   transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }

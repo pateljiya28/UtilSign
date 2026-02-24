@@ -34,11 +34,11 @@ const FILTERS = [
 // ─── Status Badge ───────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
     const map: Record<string, { bg: string; text: string; label: string }> = {
-        draft: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Draft' },
-        sent: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Sent' },
-        in_progress: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'In Progress' },
-        completed: { bg: 'bg-green-50', text: 'text-green-700', label: 'Completed' },
-        cancelled: { bg: 'bg-red-50', text: 'text-red-700', label: 'Cancelled' },
+        draft: { bg: 'bg-slate-700/60', text: 'text-slate-300', label: 'Draft' },
+        sent: { bg: 'bg-blue-500/20', text: 'text-blue-300', label: 'Sent' },
+        in_progress: { bg: 'bg-amber-500/20', text: 'text-amber-300', label: 'In Progress' },
+        completed: { bg: 'bg-emerald-500/20', text: 'text-emerald-300', label: 'Completed' },
+        cancelled: { bg: 'bg-red-500/20', text: 'text-red-300', label: 'Cancelled' },
     }
     const s = map[status] ?? map.draft
     return (
@@ -84,7 +84,7 @@ export default function AgreementsPage() {
             <div className="flex gap-6">
                 {/* ── Sidebar ─────────────────────────────────────────────────── */}
                 <div className="w-60 shrink-0">
-                    <h2 className="text-lg font-bold text-gray-900 mb-4">Agreements</h2>
+                    <h2 className="text-lg font-bold text-white mb-4">Agreements</h2>
                     <nav className="space-y-0.5">
                         {FILTERS.map(({ key, label, icon: Icon }) => (
                             <button
@@ -92,7 +92,7 @@ export default function AgreementsPage() {
                                 onClick={() => setActiveFilter(key)}
                                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeFilter === key
                                     ? 'bg-[#4C00FF]/10 text-[#4C00FF]'
-                                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
                                     }`}
                             >
                                 <Icon className="w-4 h-4" />
@@ -106,59 +106,59 @@ export default function AgreementsPage() {
                 <div className="flex-1 min-w-0">
                     {/* Search bar */}
                     <div className="relative mb-5">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                         <input
                             type="text"
                             placeholder={`Search ${activeLabel.toLowerCase()}…`}
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4C00FF]/30 focus:border-[#4C00FF]/40"
+                            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-slate-800/60 border border-slate-700/40 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#4C00FF]/30 focus:border-[#4C00FF]/40"
                         />
                     </div>
 
                     {/* Header bar */}
                     <div className="flex items-center justify-between mb-3 px-1">
-                        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{activeLabel}</h3>
-                        <p className="text-xs text-gray-400">{filteredDocs.length} document{filteredDocs.length !== 1 ? 's' : ''}</p>
+                        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">{activeLabel}</h3>
+                        <p className="text-xs text-slate-500">{filteredDocs.length} document{filteredDocs.length !== 1 ? 's' : ''}</p>
                     </div>
 
                     {/* Document List */}
                     {loading ? (
-                        <div className="text-center py-20 bg-white rounded-xl border border-gray-200">
+                        <div className="text-center py-20 bg-slate-900/60 rounded-xl border border-slate-800/60">
                             <div className="w-7 h-7 border-2 border-[#4C00FF] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                            <p className="text-gray-400 text-sm">Loading…</p>
+                            <p className="text-slate-500 text-sm">Loading…</p>
                         </div>
                     ) : filteredDocs.length === 0 ? (
-                        <div className="rounded-xl border-2 border-dashed border-gray-200 bg-white p-16 text-center">
-                            <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                            <p className="text-gray-700 font-semibold text-lg">No documents</p>
-                            <p className="text-gray-400 text-sm mt-1">
+                        <div className="rounded-xl border-2 border-dashed border-slate-700/40 bg-slate-900/40 p-16 text-center">
+                            <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                            <p className="text-white font-semibold text-lg">No documents</p>
+                            <p className="text-slate-500 text-sm mt-1">
                                 {search ? 'Try a different search term.' : `No documents in ${activeLabel.toLowerCase()} yet.`}
                             </p>
                         </div>
                     ) : (
-                        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="bg-slate-900/60 rounded-xl border border-slate-800/60 overflow-hidden">
                             {filteredDocs.map((doc, i) => (
                                 <Link
                                     key={doc.id}
                                     href={`/documents/${doc.id}/status`}
-                                    className={`group flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors ${i < filteredDocs.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                    className={`group flex items-center gap-4 px-5 py-3.5 hover:bg-slate-800/40 transition-colors ${i < filteredDocs.length - 1 ? 'border-b border-slate-800/40' : ''}`}
                                 >
-                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${doc.type === 'self_sign' ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${doc.type === 'self_sign' ? 'bg-[#4C00FF]/10' : 'bg-blue-500/10'}`}>
                                         {doc.type === 'self_sign'
                                             ? <PenTool className="w-4 h-4 text-[#4C00FF]" />
-                                            : <Send className="w-4 h-4 text-blue-600" />
+                                            : <Send className="w-4 h-4 text-blue-400" />
                                         }
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-gray-900 truncate group-hover:text-[#4C00FF] transition-colors">{doc.file_name}</p>
-                                        <p className="text-xs text-gray-400 mt-0.5">
+                                        <p className="text-sm font-medium text-white truncate group-hover:text-[#4C00FF] transition-colors">{doc.file_name}</p>
+                                        <p className="text-xs text-slate-500 mt-0.5">
                                             {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            {doc.category && <span className="ml-2 text-gray-300">· {doc.category}</span>}
+                                            {doc.category && <span className="ml-2 text-slate-600">· {doc.category}</span>}
                                         </p>
                                     </div>
                                     <StatusBadge status={doc.status} />
-                                    <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-[#4C00FF] transition-colors" />
+                                    <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-[#4C00FF] transition-colors" />
                                 </Link>
                             ))}
                         </div>
