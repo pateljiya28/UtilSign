@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useRouter } from 'next/navigation'
 
@@ -17,30 +17,95 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
     const [success, setSuccess] = useState('')
+    const [cooldown, setCooldown] = useState(0)
+
+    // Countdown timer for rate limit
+    useEffect(() => {
+        if (cooldown <= 0) return
+        const timer = setInterval(() => setCooldown(c => c - 1), 1000)
+        return () => clearInterval(timer)
+    }, [cooldown])
+
+    // Common email domain typos
+    const DOMAIN_TYPOS: Record<string, string> = {
+        'gamil.com': 'gmail.com',
+        'gmai.com': 'gmail.com',
+        'gmal.com': 'gmail.com',
+        'gmial.com': 'gmail.com',
+        'gnail.com': 'gmail.com',
+        'gmali.com': 'gmail.com',
+        'yaho.com': 'yahoo.com',
+        'yahooo.com': 'yahoo.com',
+        'hotmal.com': 'hotmail.com',
+        'hotmial.com': 'hotmail.com',
+        'outlok.com': 'outlook.com',
+    }
+
+    const friendlyError = useCallback((msg: string): string => {
+        const lower = msg.toLowerCase()
+        if (lower.includes('rate limit')) {
+            setCooldown(60)
+            return 'Too many attempts. Please wait before trying again.'
+        }
+        if (lower.includes('invalid login credentials')) {
+            return 'Incorrect email or password. Please try again.'
+        }
+        if (lower.includes('password') && lower.includes('characters')) {
+            return 'Password must be at least 6 characters long.'
+        }
+        if (lower.includes('user not found') || lower.includes('no user')) {
+            return 'No account found with this email. Try signing up instead.'
+        }
+        if (lower.includes('email not confirmed')) {
+            return 'Please check your inbox and confirm your email before signing in.'
+        }
+        if (lower.includes('already registered') || lower.includes('already been registered')) {
+            return 'An account with this email already exists. Try signing in instead.'
+        }
+        return msg
+    }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (cooldown > 0) return
         setLoading(true)
         setError('')
         setSuccess('')
+
+        // Check for email domain typos
+        const domain = email.split('@')[1]?.toLowerCase()
+        if (domain && DOMAIN_TYPOS[domain]) {
+            const corrected = email.replace(/@.+$/, `@${DOMAIN_TYPOS[domain]}`)
+            setError(`Did you mean ${corrected}? "${domain}" looks like a typo.`)
+            setLoading(false)
+            return
+        }
 
         try {
             if (mode === 'login') {
                 const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
                 if (signInErr) {
-                    setError(signInErr.message)
+                    setError(friendlyError(signInErr.message))
                 } else {
                     router.push('/dashboard')
                     router.refresh()
                 }
             } else {
-                const { error: signUpErr } = await supabase.auth.signUp({
+                const { data, error: signUpErr } = await supabase.auth.signUp({
                     email,
                     password,
                     options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
                 })
                 if (signUpErr) {
-                    setError(signUpErr.message)
+                    setError(friendlyError(signUpErr.message))
+                } else if (data.user && !data.user.identities?.length) {
+                    // User already exists
+                    setError('An account with this email already exists. Try signing in instead.')
+                } else if (data.session) {
+                    // Email confirmation disabled — user is logged in directly
+                    setSuccess('Account created! Redirecting...')
+                    router.push('/dashboard')
+                    router.refresh()
                 } else {
                     setSuccess('Account created! Check your email to confirm, then log in.')
                     setMode('login')
@@ -48,7 +113,7 @@ export default function LoginPage() {
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Network error'
-            setError(`Connection failed: ${msg}. Check that your Supabase URL is correct.`)
+            setError(`Connection failed: ${msg}. Check your internet connection.`)
         }
         setLoading(false)
     }
@@ -74,6 +139,15 @@ export default function LoginPage() {
                     {error && (
                         <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
                             {error}
+                            {cooldown > 0 && (
+                                <div className="mt-2 flex items-center gap-2 text-red-400/80">
+                                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                    </svg>
+                                    Retry in {cooldown}s
+                                </div>
+                            )}
                         </div>
                     )}
                     {success && (
@@ -111,7 +185,7 @@ export default function LoginPage() {
                         <button
                             id="auth-submit"
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || cooldown > 0}
                             className="btn-primary w-full mt-2"
                         >
                             {loading ? (
@@ -122,6 +196,8 @@ export default function LoginPage() {
                                     </svg>
                                     {mode === 'login' ? 'Signing in…' : 'Creating account…'}
                                 </span>
+                            ) : cooldown > 0 ? (
+                                `Wait ${cooldown}s…`
                             ) : mode === 'login' ? 'Sign in' : 'Create account'}
                         </button>
                     </form>
@@ -130,7 +206,7 @@ export default function LoginPage() {
                         {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
                         <button
                             type="button"
-                            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError('') }}
+                            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setCooldown(0) }}
                             className="text-brand-400 hover:text-brand-300 font-medium transition-colors"
                         >
                             {mode === 'login' ? 'Sign up' : 'Sign in'}
