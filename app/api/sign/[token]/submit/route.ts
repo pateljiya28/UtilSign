@@ -229,7 +229,8 @@ export async function POST(
             .eq('id', doc.id)
             .eq('status', 'sent')
 
-        // ── Find next pending signer ──────────────────────────────────────────────
+        // ── Find next pending signer (sequential mode) ──────────────────────────────
+        // Also check if there are any awaiting_turn signers left (simultaneous mode)
         const { data: nextSigners } = await admin
             .from('signers')
             .select('id, email, priority')
@@ -237,6 +238,16 @@ export async function POST(
             .eq('status', 'pending')
             .order('priority', { ascending: true })
             .limit(1)
+
+        // Check if there are other signers still awaiting_turn (not yet signed)
+        const { data: awaitingSigners } = await admin
+            .from('signers')
+            .select('id, email, priority')
+            .eq('document_id', doc.id)
+            .eq('status', 'awaiting_turn')
+            .neq('id', signer.id)
+
+        const hasUnsignedSigners = (nextSigners && nextSigners.length > 0) || (awaitingSigners && awaitingSigners.length > 0)
 
         if (nextSigners && nextSigners.length > 0) {
             // ── Advance chain to next signer ──────────────────────────────────────
@@ -321,6 +332,11 @@ export async function POST(
                 }
             }
 
+            return NextResponse.json({ success: true, final: false })
+        }
+
+        // If there are still awaiting signers (simultaneous mode), don't complete yet
+        if (hasUnsignedSigners) {
             return NextResponse.json({ success: true, final: false })
         }
 

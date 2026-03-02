@@ -40,7 +40,21 @@ export async function GET(
             return NextResponse.json({ error: 'Failed to fetch signers' }, { status: 500 })
         }
 
-        return NextResponse.json({ document: doc, signers: signers ?? [] })
+        // ── Check for blocked signers (3+ total failed OTP attempts) ───────────────
+        const blockedSignerIds: string[] = []
+        for (const signer of (signers ?? [])) {
+            const { data: otpRecords } = await admin
+                .from('otp_records')
+                .select('attempts')
+                .eq('signer_id', signer.id)
+
+            const totalFails = (otpRecords ?? []).reduce((sum, r) => sum + (r.attempts ?? 0), 0)
+            if (totalFails >= 3) {
+                blockedSignerIds.push(signer.id)
+            }
+        }
+
+        return NextResponse.json({ document: doc, signers: signers ?? [], blockedSignerIds })
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error'
         return NextResponse.json({ error: message }, { status: 500 })

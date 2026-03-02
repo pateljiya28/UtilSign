@@ -16,6 +16,8 @@ export type AuditEventType =
     | 'signature_submitted'
     | 'pdf_burned'
     | 'signer_declined'
+    | 'signer_blocked'
+    | 'signer_unblocked'
     | 'next_signer_notified'
     | 'document_completed'
     | 'document_downloaded'

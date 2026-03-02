@@ -106,6 +106,7 @@ export default function NewDocumentPage() {
     const [emailSubject, setEmailSubject] = useState('')
     const [emailMessage, setEmailMessage] = useState('')
     const [category, setCategory] = useState('')
+    const [noPriority, setNoPriority] = useState(false)
 
     // ── Template prefill logic ──────────────────────────────────────────
     useEffect(() => {
@@ -495,6 +496,7 @@ export default function NewDocumentPage() {
                     signers: signerData,
                     subject: emailSubject || undefined,
                     message: emailMessage || undefined,
+                    noPriority: noPriority || undefined,
                 }),
             })
             const data = await res.json()
@@ -692,7 +694,7 @@ export default function NewDocumentPage() {
                             </div>
 
                             {/* I'm the only signer checkbox */}
-                            <label className="flex items-center gap-2.5 cursor-pointer mb-4 py-2">
+                            <label className="flex items-center gap-2.5 cursor-pointer mb-2 py-2">
                                 <input
                                     type="checkbox"
                                     checked={isSelfSign}
@@ -707,6 +709,20 @@ export default function NewDocumentPage() {
                                 <span className="text-sm font-medium text-gray-700">I&apos;m the only signer</span>
                                 <Info className="w-3.5 h-3.5 text-gray-400" />
                             </label>
+
+                            {/* Disable Priority Order checkbox — only shown in multi-signer mode */}
+                            {!isSelfSign && (
+                                <label className="flex items-center gap-2.5 cursor-pointer mb-4 py-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={noPriority}
+                                        onChange={(e) => setNoPriority(e.target.checked)}
+                                        className="w-[18px] h-[18px] rounded border-gray-300 text-[#4C00FF] accent-[#4C00FF] cursor-pointer"
+                                    />
+                                    <span className="text-sm font-medium text-gray-700">Disable Priority Order</span>
+                                    <Info className="w-3.5 h-3.5 text-gray-400" />
+                                </label>
+                            )}
 
                             {/* Self-signer name field with auto-suggest */}
                             {isSelfSign && (
@@ -732,9 +748,11 @@ export default function NewDocumentPage() {
                                         {recipients.map((r, i) => (
                                             <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-gray-100/50 border border-gray-200/50">
                                                 {/* Priority badge */}
-                                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-gray-900 shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
-                                                    {i + 1}
-                                                </div>
+                                                {!noPriority && (
+                                                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-gray-900 shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
+                                                        {i + 1}
+                                                    </div>
+                                                )}
                                                 {/* Name */}
                                                 <input
                                                     type="text"
@@ -760,26 +778,28 @@ export default function NewDocumentPage() {
                                                     }}
                                                 />
                                                 {/* Reorder */}
-                                                <div className="flex flex-col gap-0.5 shrink-0">
-                                                    <button
-                                                        disabled={i === 0}
-                                                        onClick={() => {
-                                                            const updated = [...recipients]
-                                                                ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
-                                                            setRecipients(updated)
-                                                        }}
-                                                        className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
-                                                    >▲</button>
-                                                    <button
-                                                        disabled={i === recipients.length - 1}
-                                                        onClick={() => {
-                                                            const updated = [...recipients]
-                                                                ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
-                                                            setRecipients(updated)
-                                                        }}
-                                                        className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
-                                                    >▼</button>
-                                                </div>
+                                                {!noPriority && (
+                                                    <div className="flex flex-col gap-0.5 shrink-0">
+                                                        <button
+                                                            disabled={i === 0}
+                                                            onClick={() => {
+                                                                const updated = [...recipients]
+                                                                    ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
+                                                                setRecipients(updated)
+                                                            }}
+                                                            className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
+                                                        >▲</button>
+                                                        <button
+                                                            disabled={i === recipients.length - 1}
+                                                            onClick={() => {
+                                                                const updated = [...recipients]
+                                                                    ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
+                                                                setRecipients(updated)
+                                                            }}
+                                                            className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
+                                                        >▼</button>
+                                                    </div>
+                                                )}
                                                 {/* Remove */}
                                                 {recipients.length > 1 && (
                                                     <button
@@ -802,9 +822,11 @@ export default function NewDocumentPage() {
                                             ><Plus className="w-3 h-3 inline mr-1" /> Add Me</button>
                                         )}
                                     </div>
-                                    <p className="text-gray-400 text-[11px] mt-3 flex items-center gap-1">
-                                        <Info className="w-3 h-3" /> Priority order determines who signs first. Drag or use arrows to reorder.
-                                    </p>
+                                    {!noPriority && (
+                                        <p className="text-gray-400 text-[11px] mt-3 flex items-center gap-1">
+                                            <Info className="w-3 h-3" /> Priority order determines who signs first. Use arrows to reorder.
+                                        </p>
+                                    )}
                                 </>
                             )}
                         </div>

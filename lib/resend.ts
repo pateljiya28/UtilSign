@@ -311,6 +311,8 @@ export async function sendBroadcastNotification({
   currentSignerEmail,
   signerPosition,
   totalSigners,
+  customSubject,
+  customMessage,
 }: {
   to: string
   documentName: string
@@ -318,11 +320,18 @@ export async function sendBroadcastNotification({
   currentSignerEmail: string
   signerPosition: number
   totalSigners: number
+  customSubject?: string
+  customMessage?: string
 }) {
   const waitCount = signerPosition - 1
+  const emailSubject = customSubject || `You are signer #${signerPosition} on "${documentName}"`
+  const messageBlock = customMessage ? `
+          <div style="background:#f0f4ff;border-left:4px solid #6366f1;border-radius:6px;padding:14px 18px;margin:0 0 20px;">
+            <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0;white-space:pre-wrap;">${customMessage}</p>
+          </div>` : ''
   return sendMail({
     to,
-    subject: `You are signer #${signerPosition} on "${documentName}"`,
+    subject: emailSubject,
     html: `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>Document Sent for Signing</title></head>
@@ -336,6 +345,7 @@ export async function sendBroadcastNotification({
         </td></tr>
         <tr><td style="padding:36px;">
           <p style="color:#4b5563;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong style="color:#1e1b4b;">${senderName}</strong> has sent <strong>${documentName}</strong> for signing.</p>
+          ${messageBlock}
           <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:16px 20px;margin:0 0 20px;">
             <p style="color:#92400e;font-size:14px;font-weight:600;margin:0 0 6px;">Your position: Signer #${signerPosition} of ${totalSigners}</p>
             <p style="color:#92400e;font-size:13px;margin:0;">${waitCount === 1 ? "1 person signs" : waitCount + " people sign"} before you. <strong>${currentSignerEmail}</strong> is currently signing. You will receive a link when it is your turn.</p>
@@ -440,6 +450,44 @@ export async function sendYourTurnNotification({
       </table>
     </td></tr>
   </table>
+</body></html>`,
+  })
+}
+
+// ─── 8. Signer Blocked Email (sent to admin/sender) ────────────────────────────
+export async function sendSignerBlockedEmail({
+  to,
+  signerEmail,
+  documentName,
+  documentId,
+}: {
+  to: string
+  signerEmail: string
+  documentName: string
+  documentId: string
+}) {
+  const unblockUrl = `${getAppUrl()}/documents/${documentId}/status`
+  return sendMail({
+    to,
+    subject: `⚠️ Signer Blocked — ${signerEmail} on "${documentName}"`,
+    html: `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fafc;">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
+      <table width="580" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.06);">
+        <tr><td style="background:linear-gradient(135deg,#dc2626,#ef4444);padding:32px 40px;text-align:center;">
+          <h1 style="color:#fff;font-size:22px;font-weight:700;margin:0;">⚠️ Signer Blocked</h1>
+          <p style="color:rgba(255,255,255,.8);font-size:14px;margin:8px 0 0;">Too many failed OTP attempts</p>
+        </td></tr>
+        <tr><td style="padding:32px 40px;">
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong style="color:#1e1b4b;">${signerEmail}</strong> has been blocked from signing <strong>"${documentName}"</strong> after 3 failed OTP verification attempts.</p>
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;margin:0 0 24px;">If this is a legitimate signer, you can unblock them from the document status page:</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${unblockUrl}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;font-size:16px;font-weight:600;text-decoration:none;padding:14px 40px;border-radius:8px;">View Document Status</a>
+          </div>
+          <p style="color:#9ca3af;font-size:12px;text-align:center;margin:0;">The signer will not be able to sign until you unblock them.</p>
+        </td></tr>
+        <tr><td style="background:#f8faff;padding:16px 40px;text-align:center;border-top:1px solid #e5e7eb;"><p style="color:#9ca3af;font-size:12px;margin:0;">Powered by <a href="${getAppUrl()}" style="color:#6366f1;">UtilSign</a></p></td></tr>
+      </table>
+  </td></tr></table>
 </body></html>`,
   })
 }

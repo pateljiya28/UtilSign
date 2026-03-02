@@ -293,3 +293,179 @@ body {
 [class*="text-white"] {
   transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DARK MODE OVERRIDES FOR GRAY-* PAGES
+   These pages (sign, status, logs, login, dashboard, new doc) use gray-*
+   classes which are light by default. Convert them to dark when dark mode.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Background overrides ────────────────────────────────────────────────── */
+html:not(.light) .bg-gray-50 {
+  background-color: #0f172a !important;
+  /* slate-900 */
+}
+
+html:not(.light) .bg-gray-100 {
+  background-color: #1e293b !important;
+  /* slate-800 */
+}
+
+html:not(.light) .bg-gray-200 {
+  background-color: #334155 !important;
+  /* slate-700 */
+}
+
+html:not(.light) .bg-white {
+  background-color: #1e293b !important;
+  /* slate-800 */
+}
+
+html:not(.light) [class*="bg-white/"],
+html:not(.light) [class*="bg-gray-50/"] {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
+
+/* ── Text color overrides ────────────────────────────────────────────────── */
+html:not(.light) .text-gray-900 {
+  color: #f1f5f9 !important;
+  /* slate-100 */
+}
+
+html:not(.light) .text-gray-800 {
+  color: #e2e8f0 !important;
+  /* slate-200 */
+}
+
+html:not(.light) .text-gray-700 {
+  color: #cbd5e1 !important;
+  /* slate-300 */
+}
+
+html:not(.light) .text-gray-600 {
+  color: #94a3b8 !important;
+  /* slate-400 */
+}
+
+html:not(.light) .text-gray-500 {
+  color: #94a3b8 !important;
+  /* slate-400 */
+}
+
+html:not(.light) .text-gray-400 {
+  color: #64748b !important;
+  /* slate-500 */
+}
+
+html:not(.light) .text-gray-300 {
+  color: #475569 !important;
+  /* slate-600 */
+}
+
+/* ── Border overrides ────────────────────────────────────────────────────── */
+html:not(.light) [class*="border-gray-100"] {
+  border-color: rgba(51, 65, 85, 0.6) !important;
+  /* slate-700 */
+}
+
+html:not(.light) [class*="border-gray-200"] {
+  border-color: rgba(51, 65, 85, 0.8) !important;
+}
+
+html:not(.light) [class*="border-gray-300"] {
+  border-color: rgba(71, 85, 105, 0.6) !important;
+  /* slate-600 */
+}
+
+/* ── Shadow overrides ────────────────────────────────────────────────────── */
+html:not(.light) .shadow-xl,
+html:not(.light) .shadow-lg,
+html:not(.light) .shadow-2xl,
+html:not(.light) .shadow-sm {
+  --tw-shadow-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ── Specific component overrides ────────────────────────────────────────── */
+
+/* White cards and panels */
+html:not(.light) div[class*="bg-white"][class*="rounded"] {
+  background-color: #1e293b !important;
+  border-color: rgba(51, 65, 85, 0.6) !important;
+}
+
+/* Inputs with gray backgrounds */
+html:not(.light) input[class*="bg-gray"],
+html:not(.light) select[class*="bg-gray"],
+html:not(.light) textarea[class*="bg-gray"] {
+  background-color: #0f172a !important;
+  border-color: rgba(51, 65, 85, 0.8) !important;
+  color: #f1f5f9 !important;
+}
+
+/* Focus ring overrides */
+html:not(.light) input[class*="focus:border-"],
+html:not(.light) input[class*="focus:ring-"] {
+  color: #f1f5f9 !important;
+}
+
+/* White-bg input overrides */
+html:not(.light) input.bg-transparent {
+  color: #f1f5f9 !important;
+}
+
+/* Gray-50 hover backgrounds */
+html:not(.light) .hover\:bg-gray-50:hover {
+  background-color: rgba(30, 41, 59, 0.6) !important;
+}
+
+html:not(.light) .hover\:bg-gray-100:hover {
+  background-color: rgba(51, 65, 85, 0.6) !important;
+}
+
+/* Status page header white bg */
+html:not(.light) header[class*="bg-white"] {
+  background-color: #1e293b !important;
+  border-color: rgba(51, 65, 85, 0.6) !important;
+}
+
+/* Subtle colored backgrounds remain readable in dark */
+html:not(.light) .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.1) !important;
+}
+
+html:not(.light) .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+
+html:not(.light) .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.1) !important;
+}
+
+html:not(.light) .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+
+html:not(.light) .bg-purple-50 {
+  background-color: rgba(139, 92, 246, 0.1) !important;
+}
+
+html:not(.light) .bg-cyan-50 {
+  background-color: rgba(6, 182, 212, 0.1) !important;
+}
+
+html:not(.light) .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.1) !important;
+}
+
+/* ── Progress bars & indicators in dark mode ─────────────────────────────── */
+html:not(.light) .bg-gray-200[class*="overflow-hidden"] {
+  background-color: #334155 !important;
+}
+
+/* ── Dark mode smooth transitions for gray pages ─────────────────────────── */
+[class*="bg-gray-"],
+[class*="bg-white"],
+[class*="border-gray-"],
+[class*="text-gray-"] {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}

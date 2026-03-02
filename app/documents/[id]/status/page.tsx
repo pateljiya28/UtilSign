@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Check, Clock, Download, RefreshCw, ClipboardList, Info } from 'lucide-react'
+import { ArrowLeft, FileText, Check, Clock, Download, RefreshCw, ClipboardList, Info, ShieldAlert } from 'lucide-react'
 
 interface SignerData {
     id: string
@@ -26,6 +26,7 @@ const statusBadge: Record<string, { cls: string; label: string }> = {
     awaiting_turn: { cls: 'bg-gray-50 text-gray-500 border-gray-100', label: 'Waiting for Others' },
     signed: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-100', label: 'Signed' },
     declined: { cls: 'bg-red-50 text-red-700 border-red-100', label: 'Declined' },
+    blocked: { cls: 'bg-orange-50 text-orange-700 border-orange-100', label: 'Blocked' },
 }
 
 const docStatusBadge: Record<string, { cls: string; label: string }> = {
@@ -46,6 +47,8 @@ export default function DocumentStatusPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [downloading, setDownloading] = useState(false)
+    const [blockedSignerIds, setBlockedSignerIds] = useState<Set<string>>(new Set())
+    const [unblocking, setUnblocking] = useState<string | null>(null)
 
     const fetchStatus = async () => {
         try {
@@ -54,6 +57,9 @@ export default function DocumentStatusPage() {
             if (!res.ok) throw new Error(data.error)
             setDoc(data.document)
             setSigners(data.signers)
+            if (data.blockedSignerIds) {
+                setBlockedSignerIds(new Set(data.blockedSignerIds))
+            }
             setError('')
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch status')
@@ -233,6 +239,31 @@ export default function DocumentStatusPage() {
                                                 <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                                                 <span className="text-[10px] font-bold uppercase tracking-widest">Active</span>
                                             </div>
+                                        )}
+                                        {blockedSignerIds.has(signer.id) && (
+                                            <button
+                                                onClick={async () => {
+                                                    setUnblocking(signer.id)
+                                                    try {
+                                                        const res = await fetch(`/api/documents/${documentId}/unblock`, {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ signerId: signer.id }),
+                                                        })
+                                                        if (!res.ok) throw new Error('Failed to unblock')
+                                                        await fetchStatus()
+                                                    } catch (err) {
+                                                        setError(err instanceof Error ? err.message : 'Failed to unblock')
+                                                    } finally {
+                                                        setUnblocking(null)
+                                                    }
+                                                }}
+                                                disabled={unblocking === signer.id}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white text-[10px] font-bold hover:bg-orange-600 transition-all disabled:opacity-50 shadow-sm"
+                                            >
+                                                <ShieldAlert className="w-3 h-3" />
+                                                {unblocking === signer.id ? 'Unblocking…' : 'Unblock'}
+                                            </button>
                                         )}
                                     </div>
                                 </div>

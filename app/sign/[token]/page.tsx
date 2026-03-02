@@ -63,9 +63,21 @@ export default function SignPage() {
     const [activePlaceholderId, setActivePlaceholderId] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
 
+    // Saved signature from localStorage
+    const [savedSignatureImage, setSavedSignatureImage] = useState<string | null>(null)
+
     // Text/Date field inputs (for non-signature fields)
     const [textInputs, setTextInputs] = useState<Record<string, string>>({})
     const [editingFieldId, setEditingFieldId] = useState<string | null>(null)
+
+    // Load saved signature from localStorage keyed by signer email
+    useEffect(() => {
+        if (!signerEmail) return
+        try {
+            const saved = localStorage.getItem(`utilsign_saved_signature_${signerEmail}`)
+            if (saved) setSavedSignatureImage(saved)
+        } catch { /* ignore */ }
+    }, [signerEmail])
 
     // Refs for auto-scroll
     const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -128,16 +140,27 @@ export default function SignPage() {
             })
             const data = await res.json()
             if (!res.ok) {
-                setOtpError(data.message || 'Verification failed.')
-                if (data.error === 'otp_locked') {
-                    setOtpError('Too many failed attempts. Please request a new OTP by refreshing the page.')
+                if (data.error === 'signer_blocked') {
+                    setError('You have been blocked due to too many failed OTP attempts. The document sender has been notified and must unblock you before you can sign.')
+                    setErrorType('blocked')
+                    setState('error')
+                    setOtpLoading(false)
+                    return
                 }
+                setOtpError(data.message || 'Verification failed.')
                 setOtpLoading(false)
                 return
             }
             setSessionToken(data.sessionToken)
             await loadDocument(data.sessionToken)
             setState('document')
+            // Auto-scroll to first unsigned placeholder after document renders
+            setTimeout(() => {
+                const firstUnsigned = document.querySelector('[data-placeholder="unsigned"]') as HTMLElement
+                if (firstUnsigned) {
+                    firstUnsigned.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+            }, 500)
         } catch {
             setOtpError('Something went wrong. Please try again.')
         } finally {
@@ -303,8 +326,64 @@ export default function SignPage() {
             setTimeout(() => scrollToNextUnsigned(activePlaceholderId, updated), 400)
             return updated
         })
+        // Persist to localStorage keyed by signer email
+        try {
+            if (signerEmail) {
+                localStorage.setItem(`utilsign_saved_signature_${signerEmail}`, imageBase64)
+            }
+            // Also save to the generic key for self-sign compatibility
+            localStorage.setItem('utilsign_saved_signature', imageBase64)
+            setSavedSignatureImage(imageBase64)
+        } catch { /* ignore */ }
         setModalOpen(false)
         setActivePlaceholderId(null)
+    }
+
+    // Apply saved signature to a specific placeholder
+    const handleApplySavedSignature = (placeholderId: string) => {
+        if (!savedSignatureImage) return
+        setSignatures(prev => {
+            const filtered = prev.filter(s => s.placeholderId !== placeholderId)
+            const updated = [...filtered, { placeholderId, imageBase64: savedSignatureImage }]
+            setTimeout(() => scrollToNextUnsigned(placeholderId, updated), 400)
+            return updated
+        })
+    }
+
+    // Sign All unsigned Sign fields with saved signature
+    const handleSignAll = () => {
+        if (!savedSignatureImage) return
+        const unsignedSignFields = myPlaceholders
+            .filter(p => isSignField(p.label) && !isPlaceholderSigned(p.id))
+        if (unsignedSignFields.length === 0) return
+        setSignatures(prev => {
+            let updated = [...prev]
+            for (const p of unsignedSignFields) {
+                updated = updated.filter(s => s.placeholderId !== p.id)
+                updated.push({ placeholderId: p.id, imageBase64: savedSignatureImage })
+            }
+            return updated
+        })
+    }
+
+    // Handle drop of saved signature onto a placeholder in the PDF
+    const handleSignatureDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        const sigData = e.dataTransfer.getData('application/signature')
+        if (!sigData || !savedSignatureImage) return
+        // Find the placeholder under the drop point
+        const rect = e.currentTarget.getBoundingClientRect()
+        const xPct = ((e.clientX - rect.left) / rect.width) * 100
+        const yPct = ((e.clientY - rect.top) / rect.height) * 100
+        const target = placeholders
+            .filter(p => p.page_number === activePage && p.is_mine && isSignField(p.label) && !isPlaceholderSigned(p.id))
+            .find(p =>
+                xPct >= p.x_percent && xPct <= p.x_percent + p.width_percent &&
+                yPct >= p.y_percent && yPct <= p.y_percent + p.height_percent
+            )
+        if (target) {
+            handleApplySavedSignature(target.id)
+        }
     }
 
     const scrollToNextUnsigned = (justSignedId: string, currentSignatures: SignatureCapture[]) => {
@@ -472,7 +551,14 @@ export default function SignPage() {
 
                                 {otpError && (
                                     <div className="mb-6 px-4 py-3 rounded-lg bg-red-50 text-red-600 text-xs font-medium border border-red-100 animate-shake">
-                                        {otpError}
+                                        <p>{otpError}</p>
+                                        <button
+                                            onClick={handleResendOTP}
+                                            disabled={resendCooldown > 0 || otpLoading}
+                                            className="mt-2 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-all disabled:opacity-50"
+                                        >
+                                            {otpLoading ? 'Sending…' : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : '🔄 Resend OTP'}
+                                        </button>
                                     </div>
                                 )}
 
@@ -498,6 +584,9 @@ export default function SignPage() {
                                                     const prev = (e.target as HTMLInputElement).previousElementSibling as HTMLInputElement
                                                     prev?.focus()
                                                     setOtp(prev => prev.slice(0, i - 1) + prev.slice(i))
+                                                }
+                                                if (e.key === 'Enter' && otp.length === 6) {
+                                                    handleVerifyOTP()
                                                 }
                                             }}
                                         />
@@ -572,8 +661,41 @@ export default function SignPage() {
                             </div>
                         )}
 
+                        {/* Saved Signature Panel */}
+                        {savedSignatureImage && (
+                            <div className="mb-5 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+                                <div
+                                    draggable
+                                    onDragStart={e => {
+                                        e.dataTransfer.setData('application/signature', 'saved')
+                                        e.dataTransfer.effectAllowed = 'copy'
+                                    }}
+                                    className="w-28 h-14 border-2 border-dashed border-[#4C00FF]/30 rounded-lg bg-[#4C00FF]/5 flex items-center justify-center cursor-grab active:cursor-grabbing hover:border-[#4C00FF]/60 transition-all"
+                                    title="Drag onto a Sign field"
+                                >
+                                    <img src={savedSignatureImage} alt="Saved" className="max-w-full max-h-full object-contain p-1" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-gray-900">Your Saved Signature</p>
+                                    <p className="text-[10px] text-gray-400">Drag onto a field or use Sign All</p>
+                                </div>
+                                {myPlaceholders.filter(p => isSignField(p.label) && !isPlaceholderSigned(p.id)).length > 0 && (
+                                    <button
+                                        onClick={handleSignAll}
+                                        className="px-4 py-2 rounded-xl bg-[#4C00FF] text-white text-xs font-bold hover:bg-[#3D00CC] transition-all shadow-sm"
+                                    >
+                                        ✓ Sign All ({myPlaceholders.filter(p => isSignField(p.label) && !isPlaceholderSigned(p.id)).length})
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
                         {/* PDF Viewer */}
-                        <div className="relative inline-block border border-gray-100 rounded-2xl shadow-xl overflow-hidden bg-white">
+                        <div
+                            className="relative inline-block border border-gray-100 rounded-2xl shadow-xl overflow-hidden bg-white"
+                            onDragOver={e => { if (e.dataTransfer.types.includes('application/signature')) e.preventDefault() }}
+                            onDrop={handleSignatureDrop}
+                        >
                             {pdfPages[activePage - 1] && (
                                 <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="max-w-full" draggable={false} />
                             )}
@@ -612,6 +734,7 @@ export default function SignPage() {
                                     return (
                                         <div
                                             key={p.id}
+                                            data-placeholder={signed ? 'signed' : 'unsigned'}
                                             ref={el => { placeholderRefs.current[p.id] = el }}
                                             className={`absolute transition-all ${signed
                                                 ? 'border-2 border-emerald-500 bg-emerald-50 border-solid'

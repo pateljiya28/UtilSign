@@ -55,13 +55,15 @@ export async function POST(
             signers: SignerInput[]
             subject?: string
             message?: string
+            noPriority?: boolean
         }
         if (!Array.isArray(body.signers) || body.signers.length === 0) {
             return NextResponse.json({ error: 'signers array is required' }, { status: 400 })
         }
 
+        const isSimultaneous = !!body.noPriority
         const priorities = body.signers.map(s => s.priority)
-        if (new Set(priorities).size !== priorities.length) {
+        if (!isSimultaneous && new Set(priorities).size !== priorities.length) {
             return NextResponse.json({ error: 'Each signer must have a unique priority' }, { status: 400 })
         }
 
@@ -84,32 +86,122 @@ export async function POST(
         // ── Update doc status to 'sent' ────────────────────────────────────────────
         await admin.from('documents').update({ status: 'sent' }).eq('id', documentId)
 
-        // ── Find priority-1 signer and kick off the chain ─────────────────────────
-        const firstSigner = insertedSigners.sort((a: { priority: number }, b: { priority: number }) => a.priority - b.priority)[0]
-        const token = await signMagicToken({ signerId: firstSigner.id, documentId })
-        const tokenHash = await hashTokenStr(token)
+        const senderDisplayName = body.signers.find(s => s.email.toLowerCase() === (user.email ?? '').toLowerCase())?.name || (user.email ?? 'Document sender')
+        let senderRedirectUrl: string | null = null
 
-        await admin
-            .from('signers')
-            .update({ status: 'awaiting_turn', token_hash: tokenHash })
-            .eq('id', firstSigner.id)
+        if (isSimultaneous) {
+            // ── SIMULTANEOUS MODE: send signing links to ALL signers ─────────────
+            for (const signer of insertedSigners) {
+                const token = await signMagicToken({ signerId: signer.id, documentId })
+                const tokenHash = await hashTokenStr(token)
+                await admin
+                    .from('signers')
+                    .update({ status: 'awaiting_turn', token_hash: tokenHash })
+                    .eq('id', signer.id)
 
-        const signLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${token}`
+                const signLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${token}`
+                const isSender = signer.email.toLowerCase() === (user.email ?? '').toLowerCase()
 
-        // ── Check if sender IS the priority-1 signer ──────────────────────────
-        const senderIsFirstSigner = firstSigner.email.toLowerCase() === (user.email ?? '').toLowerCase()
+                if (isSender) {
+                    senderRedirectUrl = `/sign/${token}`
+                } else {
+                    try {
+                        await sendSigningRequest({
+                            to: signer.email,
+                            senderName: senderDisplayName,
+                            documentName: doc.file_name,
+                            signLink,
+                            customSubject: body.subject,
+                            customMessage: body.message,
+                        })
+                        await logEvent({
+                            documentId,
+                            signerId: signer.id,
+                            actorEmail: user.email ?? 'unknown',
+                            event: 'email_delivered',
+                            metadata: { to: signer.email },
+                        })
+                    } catch (emailErr) {
+                        console.error(`[send] Email to ${signer.email} failed:`, emailErr)
+                        await logEvent({
+                            documentId,
+                            signerId: signer.id,
+                            actorEmail: user.email ?? 'unknown',
+                            event: 'email_failed',
+                            metadata: { to: signer.email, reason: 'send_failed' },
+                        })
+                    }
+                }
+            }
+        } else {
+            // ── SEQUENTIAL MODE: send to priority-1, broadcast to rest ───────────
+            const firstSigner = insertedSigners.sort((a: { priority: number }, b: { priority: number }) => a.priority - b.priority)[0]
+            const token = await signMagicToken({ signerId: firstSigner.id, documentId })
+            const tokenHash = await hashTokenStr(token)
 
-        if (!senderIsFirstSigner) {
-            // Standard flow: email the first signer
-            const senderDisplayName = body.signers.find(s => s.email.toLowerCase() === (user.email ?? '').toLowerCase())?.name || (user.email ?? 'Document sender')
-            await sendSigningRequest({
-                to: firstSigner.email,
-                senderName: senderDisplayName,
-                documentName: doc.file_name,
-                signLink,
-                customSubject: body.subject,
-                customMessage: body.message,
-            })
+            await admin
+                .from('signers')
+                .update({ status: 'awaiting_turn', token_hash: tokenHash })
+                .eq('id', firstSigner.id)
+
+            const signLink = `${process.env.NEXT_PUBLIC_APP_URL}/sign/${token}`
+            const senderIsFirstSigner = firstSigner.email.toLowerCase() === (user.email ?? '').toLowerCase()
+
+            if (senderIsFirstSigner) {
+                senderRedirectUrl = `/sign/${token}`
+            } else {
+                await sendSigningRequest({
+                    to: firstSigner.email,
+                    senderName: senderDisplayName,
+                    documentName: doc.file_name,
+                    signLink,
+                    customSubject: body.subject,
+                    customMessage: body.message,
+                })
+                await logEvent({
+                    documentId,
+                    signerId: firstSigner.id,
+                    actorEmail: user.email ?? 'unknown',
+                    event: 'email_delivered',
+                    metadata: { to: firstSigner.email },
+                })
+            }
+
+            // Broadcast to other signers
+            const sortedSigners = insertedSigners.sort(
+                (a: { priority: number }, b: { priority: number }) => a.priority - b.priority
+            )
+            const otherSigners = sortedSigners.slice(1)
+            for (const signer of otherSigners) {
+                try {
+                    await sendBroadcastNotification({
+                        to: signer.email,
+                        documentName: doc.file_name,
+                        senderName: user.email ?? 'Document sender',
+                        currentSignerEmail: firstSigner.email,
+                        signerPosition: signer.priority,
+                        totalSigners: insertedSigners.length,
+                        customSubject: body.subject,
+                        customMessage: body.message,
+                    })
+                    await logEvent({
+                        documentId,
+                        signerId: signer.id,
+                        actorEmail: user.email ?? 'unknown',
+                        event: 'broadcast_sent',
+                        metadata: { to: signer.email, position: signer.priority },
+                    })
+                } catch (broadcastErr) {
+                    console.error(`[send] Broadcast to ${signer.email} failed:`, broadcastErr)
+                    await logEvent({
+                        documentId,
+                        signerId: signer.id,
+                        actorEmail: user.email ?? 'unknown',
+                        event: 'email_failed',
+                        metadata: { to: signer.email, reason: 'broadcast_failed' },
+                    })
+                }
+            }
         }
 
         // ── Audit ─────────────────────────────────────────────────────────────────
@@ -117,56 +209,12 @@ export async function POST(
             documentId,
             actorEmail: user.email ?? 'unknown',
             event: 'document_sent',
-            metadata: { signerCount: body.signers.length },
+            metadata: { signerCount: body.signers.length, mode: isSimultaneous ? 'simultaneous' : 'sequential' },
         })
 
-        if (!senderIsFirstSigner) {
-            await logEvent({
-                documentId,
-                signerId: firstSigner.id,
-                actorEmail: user.email ?? 'unknown',
-                event: 'email_delivered',
-                metadata: { to: firstSigner.email },
-            })
-        }
-
-        // ── Broadcast to all other signers ──────────────────────────────────────────
-        const sortedSigners = insertedSigners.sort(
-            (a: { priority: number }, b: { priority: number }) => a.priority - b.priority
-        )
-        const otherSigners = sortedSigners.slice(1) // everyone except signer #1
-        for (const signer of otherSigners) {
-            try {
-                await sendBroadcastNotification({
-                    to: signer.email,
-                    documentName: doc.file_name,
-                    senderName: user.email ?? 'Document sender',
-                    currentSignerEmail: firstSigner.email,
-                    signerPosition: signer.priority,
-                    totalSigners: insertedSigners.length,
-                })
-                await logEvent({
-                    documentId,
-                    signerId: signer.id,
-                    actorEmail: user.email ?? 'unknown',
-                    event: 'broadcast_sent',
-                    metadata: { to: signer.email, position: signer.priority },
-                })
-            } catch (broadcastErr) {
-                console.error(`[send] Broadcast to ${signer.email} failed:`, broadcastErr)
-                await logEvent({
-                    documentId,
-                    signerId: signer.id,
-                    actorEmail: user.email ?? 'unknown',
-                    event: 'email_failed',
-                    metadata: { to: signer.email, reason: 'broadcast_failed' },
-                })
-            }
-        }
-
-        // If sender is signer #1, redirect them to sign immediately
-        if (senderIsFirstSigner) {
-            return NextResponse.json({ success: true, redirectUrl: `/sign/${token}` })
+        // If sender is also a signer, redirect them to sign immediately
+        if (senderRedirectUrl) {
+            return NextResponse.json({ success: true, redirectUrl: senderRedirectUrl })
         }
 
         return NextResponse.json({ success: true })

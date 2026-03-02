@@ -4,6 +4,7 @@ import { verifyToken } from '@/lib/jwt'
 import { signSessionToken } from '@/lib/jwt'
 import { verifyOTP } from '@/lib/otp'
 import { logEvent } from '@/lib/audit'
+import { sendSignerBlockedEmail } from '@/lib/resend'
 
 const MAX_ATTEMPTS = 3
 
@@ -39,8 +40,26 @@ export async function POST(
             .eq('id', payload.signerId)
             .single()
 
-        if (signerError || !signer || signer.status !== 'awaiting_turn') {
+        if (signerError || !signer) {
+            return NextResponse.json({ error: 'not_found' }, { status: 404 })
+        }
+
+        if (signer.status !== 'awaiting_turn') {
             return NextResponse.json({ error: 'not_your_turn' }, { status: 403 })
+        }
+
+        // ── Check if signer is already blocked (total failed attempts >= 3) ────────
+        const { data: allOtpRecords } = await admin
+            .from('otp_records')
+            .select('attempts')
+            .eq('signer_id', signer.id)
+
+        const totalFailedAttempts = (allOtpRecords ?? []).reduce((sum, r) => sum + (r.attempts ?? 0), 0)
+        if (totalFailedAttempts >= MAX_ATTEMPTS) {
+            return NextResponse.json({
+                error: 'signer_blocked',
+                message: 'You have been blocked due to too many failed attempts. The document sender has been notified and must unblock you.',
+            }, { status: 403 })
         }
 
         // ── Load latest unused OTP record ─────────────────────────────────────────
@@ -62,11 +81,6 @@ export async function POST(
             return NextResponse.json({ error: 'otp_expired', message: 'OTP has expired. Please request a new one.' }, { status: 410 })
         }
 
-        // ── Check lock ────────────────────────────────────────────────────────────
-        if (otpRecord.attempts >= MAX_ATTEMPTS) {
-            return NextResponse.json({ error: 'otp_locked', message: 'Too many failed attempts. Please request a new OTP.' }, { status: 429 })
-        }
-
         // ── Verify OTP ────────────────────────────────────────────────────────────
         const isValid = await verifyOTP(body.otp, otpRecord.otp_hash)
 
@@ -85,24 +99,52 @@ export async function POST(
                 metadata: { attempt: newAttempts, maxAttempts: MAX_ATTEMPTS },
             })
 
-            if (newAttempts >= MAX_ATTEMPTS) {
+            // Check total failed attempts now (including this one)
+            const newTotalFailed = totalFailedAttempts + 1
+            if (newTotalFailed >= MAX_ATTEMPTS) {
+                // ── BLOCK THE SIGNER ──────────────────────────────────────────────
                 await logEvent({
                     documentId: signer.document_id,
                     signerId: signer.id,
                     actorEmail: signer.email,
-                    event: 'otp_locked',
+                    event: 'signer_blocked',
+                    metadata: { reason: 'too_many_otp_failures', totalAttempts: newTotalFailed },
                 })
+
+                // Email the document admin
+                try {
+                    const { data: doc } = await admin
+                        .from('documents')
+                        .select('file_name, sender_id')
+                        .eq('id', signer.document_id)
+                        .single()
+
+                    if (doc) {
+                        const { data: senderData } = await admin.auth.admin.getUserById(doc.sender_id)
+                        const senderEmail = senderData?.user?.email
+                        if (senderEmail) {
+                            await sendSignerBlockedEmail({
+                                to: senderEmail,
+                                signerEmail: signer.email,
+                                documentName: doc.file_name,
+                                documentId: signer.document_id,
+                            })
+                        }
+                    }
+                } catch (emailErr) {
+                    console.error('[verify-otp] Failed to send blocked email:', emailErr)
+                }
+
                 return NextResponse.json({
-                    error: 'otp_locked',
-                    message: `Too many failed attempts. Please request a new OTP.`,
-                    attempts: newAttempts,
-                }, { status: 429 })
+                    error: 'signer_blocked',
+                    message: 'You have been blocked due to too many failed attempts. The document sender has been notified and must unblock you.',
+                }, { status: 403 })
             }
 
             return NextResponse.json({
                 error: 'invalid_otp',
-                message: `Incorrect code. ${MAX_ATTEMPTS - newAttempts} attempt(s) remaining.`,
-                attempts: newAttempts,
+                message: `Incorrect code. ${MAX_ATTEMPTS - newTotalFailed} attempt(s) remaining.`,
+                attempts: newTotalFailed,
             }, { status: 400 })
         }
 
