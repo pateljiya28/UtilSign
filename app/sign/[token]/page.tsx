@@ -6,7 +6,7 @@ import SignatureModal from '@/components/SignatureModal'
 import {
     PenTool, Check, AlertCircle, Clock, ShieldCheck,
     ChevronUp, ChevronDown, CheckCircle, Info, Lock,
-    ArrowLeft, Download
+    ArrowLeft, Download, Calendar, Type, Briefcase, User
 } from 'lucide-react'
 
 type SignerState = 'loading' | 'otp' | 'document' | 'success' | 'error'
@@ -62,6 +62,10 @@ export default function SignPage() {
     const [modalOpen, setModalOpen] = useState(false)
     const [activePlaceholderId, setActivePlaceholderId] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
+
+    // Text/Date field inputs (for non-signature fields)
+    const [textInputs, setTextInputs] = useState<Record<string, string>>({})
+    const [editingFieldId, setEditingFieldId] = useState<string | null>(null)
 
     // Refs for auto-scroll
     const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -196,9 +200,99 @@ export default function SignPage() {
         }
     }
 
-    const handlePlaceholderClick = (placeholderId: string) => {
-        setActivePlaceholderId(placeholderId)
-        setModalOpen(true)
+    const getFieldType = (label: string | null): string => {
+        if (!label) return 'Sign'
+        const normalized = label.toLowerCase().trim()
+        if (normalized === 'name') return 'Name'
+        if (normalized === 'title') return 'Title'
+        if (normalized === 'designation') return 'Designation'
+        if (normalized === 'date') return 'Date'
+        return 'Sign'
+    }
+
+    const isTextField = (label: string | null) => ['Name', 'Title', 'Designation'].includes(getFieldType(label))
+    const isDateField = (label: string | null) => getFieldType(label) === 'Date'
+    const isSignField = (label: string | null) => getFieldType(label) === 'Sign'
+
+    const getFieldIcon = (fieldType: string) => {
+        switch (fieldType) {
+            case 'Name': return User
+            case 'Title': return Type
+            case 'Designation': return Briefcase
+            case 'Date': return Calendar
+            default: return PenTool
+        }
+    }
+
+    const getFieldColor = (fieldType: string) => {
+        switch (fieldType) {
+            case 'Name': return '#10b981'
+            case 'Title': return '#f59e0b'
+            case 'Designation': return '#8b5cf6'
+            case 'Date': return '#06b6d4'
+            default: return '#4C00FF'
+        }
+    }
+
+    const handlePlaceholderClick = (placeholderId: string, label: string | null) => {
+        if (isSignField(label)) {
+            setActivePlaceholderId(placeholderId)
+            setModalOpen(true)
+        } else if (isTextField(label)) {
+            setEditingFieldId(placeholderId)
+        } else if (isDateField(label)) {
+            setEditingFieldId(placeholderId)
+        }
+    }
+
+    const handleTextFieldConfirm = (placeholderId: string, text: string) => {
+        if (!text.trim()) return
+        setTextInputs(prev => ({ ...prev, [placeholderId]: text }))
+        // Store as a rendered text image in signatures for submission
+        const canvas = document.createElement('canvas')
+        canvas.width = 400
+        canvas.height = 80
+        const ctx = canvas.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.fillStyle = '#1a1a1a'
+        ctx.font = 'bold 28px Inter, Arial, sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2)
+        const imageBase64 = canvas.toDataURL('image/png')
+        setSignatures(prev => {
+            const filtered = prev.filter(s => s.placeholderId !== placeholderId)
+            const updated = [...filtered, { placeholderId, imageBase64 }]
+            setTimeout(() => scrollToNextUnsigned(placeholderId, updated), 400)
+            return updated
+        })
+        setEditingFieldId(null)
+    }
+
+    const handleDateFieldConfirm = (placeholderId: string, date: string) => {
+        if (!date) return
+        const formatted = new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+        setTextInputs(prev => ({ ...prev, [placeholderId]: formatted }))
+        const canvas = document.createElement('canvas')
+        canvas.width = 400
+        canvas.height = 80
+        const ctx = canvas.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.fillStyle = '#1a1a1a'
+        ctx.font = '24px Inter, Arial, sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(formatted, canvas.width / 2, canvas.height / 2)
+        const imageBase64 = canvas.toDataURL('image/png')
+        setSignatures(prev => {
+            const filtered = prev.filter(s => s.placeholderId !== placeholderId)
+            const updated = [...filtered, { placeholderId, imageBase64 }]
+            setTimeout(() => scrollToNextUnsigned(placeholderId, updated), 400)
+            return updated
+        })
+        setEditingFieldId(null)
     }
 
     const handleSignatureConfirm = (imageBase64: string) => {
@@ -240,11 +334,14 @@ export default function SignPage() {
     }
 
     const handleApplySame = (placeholderId: string) => {
-        if (signatures.length === 0) return
-        const lastSig = signatures[signatures.length - 1]
+        const placeholder = placeholders.find(p => p.id === placeholderId)
+        if (!placeholder) return
+        const ft = getFieldType(placeholder.label)
+        const lastValue = getLastValueForFieldType(ft)
+        if (!lastValue) return
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== placeholderId)
-            const updated = [...filtered, { placeholderId, imageBase64: lastSig.imageBase64 }]
+            const updated = [...filtered, { placeholderId, imageBase64: lastValue }]
             setTimeout(() => scrollToNextUnsigned(placeholderId, updated), 400)
             return updated
         })
@@ -253,7 +350,18 @@ export default function SignPage() {
     const isPlaceholderSigned = (id: string) => signatures.some(s => s.placeholderId === id)
     const myPlaceholders = placeholders.filter(p => p.is_mine)
     const allSigned = myPlaceholders.length > 0 && myPlaceholders.every(p => isPlaceholderSigned(p.id))
-    const lastSignatureImage = signatures.length > 0 ? signatures[signatures.length - 1].imageBase64 : null
+
+    // Get the last completed value for a specific field type
+    const getLastValueForFieldType = (fieldType: string): string | null => {
+        const matchingPlaceholders = myPlaceholders.filter(p => getFieldType(p.label) === fieldType)
+        for (let i = signatures.length - 1; i >= 0; i--) {
+            const sig = signatures[i]
+            if (matchingPlaceholders.some(p => p.id === sig.placeholderId)) {
+                return sig.imageBase64
+            }
+        }
+        return null
+    }
 
     const handleSubmit = async () => {
         setSubmitting(true)
@@ -456,8 +564,8 @@ export default function SignPage() {
                                         key={i}
                                         onClick={() => setActivePage(i + 1)}
                                         className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activePage === i + 1
-                                                ? 'bg-[#4C00FF] text-white shadow-md'
-                                                : 'bg-white border border-gray-200 text-gray-400 hover:border-gray-300'
+                                            ? 'bg-[#4C00FF] text-white shadow-md'
+                                            : 'bg-white border border-gray-200 text-gray-400 hover:border-gray-300'
                                             }`}
                                     >Page {i + 1}</button>
                                 ))}
@@ -474,6 +582,8 @@ export default function SignPage() {
                                 .filter(p => p.page_number === activePage)
                                 .map(p => {
                                     if (!p.is_mine) {
+                                        const ft = getFieldType(p.label)
+                                        const FieldIcon = getFieldIcon(ft)
                                         return (
                                             <div
                                                 key={p.id}
@@ -490,9 +600,14 @@ export default function SignPage() {
                                         )
                                     }
 
+                                    const fieldType = getFieldType(p.label)
+                                    const FieldIcon = getFieldIcon(fieldType)
+                                    const fieldColor = getFieldColor(fieldType)
                                     const signed = isPlaceholderSigned(p.id)
                                     const sig = signatures.find(s => s.placeholderId === p.id)
-                                    const canReplicateHere = !signed && lastSignatureImage
+                                    const lastMatchingValue = getLastValueForFieldType(fieldType)
+                                    const canReplicateHere = !signed && lastMatchingValue && myPlaceholders.filter(pp => getFieldType(pp.label) === fieldType).length > 1
+                                    const isEditing = editingFieldId === p.id
 
                                     return (
                                         <div
@@ -500,39 +615,86 @@ export default function SignPage() {
                                             ref={el => { placeholderRefs.current[p.id] = el }}
                                             className={`absolute transition-all ${signed
                                                 ? 'border-2 border-emerald-500 bg-emerald-50 border-solid'
-                                                : canReplicateHere
-                                                    ? 'border-2 border-amber-500 bg-amber-50 border-solid'
-                                                    : 'border-2 border-[#4C00FF] bg-[#4C00FF]/5 hover:bg-[#4C00FF]/10 animate-pulse-slow cursor-pointer border-solid'
+                                                : isEditing
+                                                    ? 'border-2 border-solid shadow-lg z-20'
+                                                    : canReplicateHere
+                                                        ? 'border-2 border-amber-500 bg-amber-50 border-solid'
+                                                        : 'border-2 bg-opacity-5 hover:bg-opacity-10 cursor-pointer border-solid'
                                                 }`}
                                             style={{
                                                 left: `${p.x_percent}%`,
                                                 top: `${p.y_percent}%`,
                                                 width: `${p.width_percent}%`,
                                                 height: `${p.height_percent}%`,
-                                                borderRadius: '6px'
+                                                borderRadius: '6px',
+                                                ...(!signed && !isEditing && !canReplicateHere ? { borderColor: fieldColor, backgroundColor: `${fieldColor}08` } : {}),
+                                                ...(isEditing ? { borderColor: fieldColor, backgroundColor: '#ffffff' } : {}),
                                             }}
-                                            onClick={() => { if (!signed && !canReplicateHere) handlePlaceholderClick(p.id) }}
+                                            onClick={() => { if (!signed && !canReplicateHere && !isEditing) handlePlaceholderClick(p.id, p.label) }}
                                         >
+                                            {/* Signed state */}
                                             {signed && sig ? (
-                                                <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain p-1" />
+                                                <img src={sig.imageBase64} alt={fieldType} className="w-full h-full object-contain p-1" />
+
+                                                /* Editing text field inline */
+                                            ) : isEditing && isTextField(p.label) ? (
+                                                <div className="flex items-center h-full w-full p-1 gap-1">
+                                                    <input
+                                                        type="text"
+                                                        autoFocus
+                                                        placeholder={`Enter ${fieldType.toLowerCase()}...`}
+                                                        defaultValue={textInputs[p.id] || ''}
+                                                        className="flex-1 min-w-0 text-sm border-none outline-none bg-transparent text-gray-900 font-medium placeholder:text-gray-400"
+                                                        onKeyDown={e => { if (e.key === 'Enter') handleTextFieldConfirm(p.id, (e.target as HTMLInputElement).value) }}
+                                                        onBlur={e => handleTextFieldConfirm(p.id, e.target.value)}
+                                                    />
+                                                    <button
+                                                        className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold text-white"
+                                                        style={{ backgroundColor: fieldColor }}
+                                                        onMouseDown={e => e.preventDefault()}
+                                                        onClick={e => {
+                                                            e.stopPropagation()
+                                                            const input = e.currentTarget.previousElementSibling as HTMLInputElement
+                                                            handleTextFieldConfirm(p.id, input.value)
+                                                        }}
+                                                    >✓</button>
+                                                </div>
+
+                                                /* Editing date field inline */
+                                            ) : isEditing && isDateField(p.label) ? (
+                                                <div className="flex items-center h-full w-full p-1 gap-1">
+                                                    <input
+                                                        type="date"
+                                                        autoFocus
+                                                        defaultValue={new Date().toISOString().split('T')[0]}
+                                                        className="flex-1 min-w-0 text-sm border-none outline-none bg-transparent text-gray-900 font-medium"
+                                                        onChange={e => handleDateFieldConfirm(p.id, e.target.value)}
+                                                    />
+                                                </div>
+
+                                                /* Replicate sign */
                                             ) : canReplicateHere ? (
                                                 <div className="flex flex-col items-center justify-center h-full w-full gap-1 p-1">
-                                                    <img src={lastSignatureImage} alt="Preview" className="object-contain opacity-30 max-h-[50%]" />
+                                                    <img src={lastMatchingValue!} alt="Preview" className="object-contain opacity-30 max-h-[50%]" />
                                                     <div className="flex gap-1 shrink-0">
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
                                                             className="px-2 py-0.5 rounded-md text-[8px] font-bold bg-emerald-600 text-white shadow-sm"
                                                         >✓ Apply Same</button>
                                                         <button
-                                                            onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
+                                                            onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id, p.label) }}
                                                             className="px-2 py-0.5 rounded-md text-[8px] font-bold bg-gray-500 text-white shadow-sm"
                                                         >✎ New</button>
                                                     </div>
                                                 </div>
+
+                                                /* Default: watermark with field type */
                                             ) : (
-                                                <div className="flex flex-col items-center justify-center h-full gap-1">
-                                                    <PenTool className="w-4 h-4 text-[#4C00FF]" />
-                                                    <span className="text-[#4C00FF] text-[10px] font-bold uppercase tracking-tight">Sign Here</span>
+                                                <div className="flex flex-col items-center justify-center h-full gap-0.5">
+                                                    <FieldIcon className="w-4 h-4" style={{ color: fieldColor }} />
+                                                    <span className="text-[10px] font-bold uppercase tracking-tight" style={{ color: fieldColor }}>
+                                                        {fieldType === 'Sign' ? 'Sign Here' : fieldType}
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>

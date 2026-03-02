@@ -40,7 +40,7 @@ export default function HomePage() {
     useEffect(() => {
         const fetchData = async () => {
             const { data: { user } } = await supabase.auth.getUser()
-            if (!user) return
+            if (!user) { setLoading(false); return }
             setUserName(user.email?.split('@')[0] ?? 'there')
             setUserEmail(user.email ?? '')
 
@@ -142,23 +142,16 @@ export default function HomePage() {
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-5">
-                    {/* Sign Card — Self Sign only */}
-                    <div className="bg-slate-900/60 rounded-xl border border-slate-800/60 p-6 hover:border-slate-700 transition-all group">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-lg bg-[#4C00FF]/10 flex items-center justify-center">
-                                <PenTool className="w-5 h-5 text-[#4C00FF]" />
-                            </div>
-                            <h3 className="font-semibold text-white">Self Sign</h3>
-                        </div>
-                        <p className="text-sm text-slate-400 mb-6 leading-relaxed">
-                            Upload a document to sign it yourself quickly and securely.
+                    {/* Unified Start Card */}
+                    <div className="bg-slate-900/60 rounded-xl border border-slate-800/60 p-8 hover:border-slate-700 transition-all group flex flex-col items-center justify-center text-center min-h-[200px]">
+                        <p className="text-lg font-semibold text-white mb-5">
+                            Sign or get signatures
                         </p>
                         <Link
-                            href="/documents/new?mode=self"
-                            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-[#4C00FF] text-white text-sm font-semibold hover:bg-[#3D00CC] transition-colors"
+                            href="/documents/new"
+                            className="inline-flex items-center justify-center px-8 py-2.5 rounded-lg bg-[#4C00FF] text-white text-sm font-semibold hover:bg-[#3D00CC] transition-colors shadow-lg shadow-[#4C00FF]/20"
                         >
-                            <PenTool className="w-4 h-4" />
-                            Self Sign
+                            Start
                         </Link>
                     </div>
 
@@ -214,25 +207,6 @@ export default function HomePage() {
                                 >
                                     <Plus className="w-4 h-4" />
                                     Create Template
-                                </Link>
-                            </div>
-                            <div className="bg-slate-900/60 rounded-xl border border-slate-800/60 p-6 hover:border-slate-700 transition-all">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className="w-10 h-10 rounded-lg bg-slate-800/60 flex items-center justify-center">
-                                        <Users className="w-5 h-5 text-slate-500" />
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Quick Start</p>
-                                        <h3 className="font-semibold text-white mt-0.5">Send for signing</h3>
-                                    </div>
-                                </div>
-                                <p className="text-sm text-slate-400 mb-6">Create an envelope and send documents to others for their signature.</p>
-                                <Link
-                                    href="/documents/new?mode=request"
-                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg border border-slate-700/40 text-sm font-semibold text-slate-300 hover:bg-slate-800/60 transition-colors"
-                                >
-                                    Get Started
-                                    <ArrowRight className="w-4 h-4" />
                                 </Link>
                             </div>
                         </>

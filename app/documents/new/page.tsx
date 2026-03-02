@@ -8,7 +8,8 @@ import ThemeToggle from '@/components/ThemeToggle'
 import { AGREEMENT_CATEGORIES } from '@/lib/categories'
 import {
     ArrowLeft, PenTool, Send, Upload, FileText, X, Check,
-    ChevronUp, ChevronDown, Info, Plus, Trash2, GripVertical, Mail, User
+    ChevronUp, ChevronDown, Info, Plus, Trash2, GripVertical, Mail, User,
+    Type, Calendar, Briefcase, GripHorizontal
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -21,7 +22,16 @@ interface Placeholder {
     heightPercent: number
     label: string
     assignedSignerEmail: string
+    fieldType: 'signature' | 'name' | 'title' | 'designation' | 'date'
 }
+
+const FIELD_TYPES = [
+    { type: 'signature' as const, label: 'Sign', icon: PenTool, w: 15, h: 4, color: '#4C00FF' },
+    { type: 'name' as const, label: 'Name', icon: User, w: 15, h: 3, color: '#10b981' },
+    { type: 'title' as const, label: 'Title', icon: Type, w: 12, h: 3, color: '#f59e0b' },
+    { type: 'designation' as const, label: 'Designation', icon: Briefcase, w: 14, h: 3, color: '#8b5cf6' },
+    { type: 'date' as const, label: 'Date', icon: Calendar, w: 10, h: 3, color: '#06b6d4' },
+]
 
 interface SignerEntry {
     email: string
@@ -43,8 +53,7 @@ const SIGNER_COLORS = [
 export default function NewDocumentPage() {
     const router = useRouter()
     const searchParams = useSearchParams()
-    const mode = searchParams.get('mode') === 'self' ? 'self' : 'request'
-    const isSelfSign = mode === 'self'
+    const [isSelfSign, setIsSelfSign] = useState(false)
 
     const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,8 +64,12 @@ export default function NewDocumentPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
 
-    // Current user email (for self-sign mode)
+    // Current user email & name (for self-sign mode)
     const [userEmail, setUserEmail] = useState('')
+    const [userName, setUserName] = useState('')
+
+    // Drag-from-toolbar state
+    const [draggingFieldType, setDraggingFieldType] = useState<string | null>(null)
 
     // Step 1: Upload
     const [file, setFile] = useState<File | null>(null)
@@ -64,6 +77,10 @@ export default function NewDocumentPage() {
     const [filePath, setFilePath] = useState<string | null>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [dragActive, setDragActive] = useState(false)
+
+    // Document preview state
+    const [previewImage, setPreviewImage] = useState<string | null>(null)
+    const [previewPageCount, setPreviewPageCount] = useState(0)
 
     // Step 2: Placeholders
     const [pdfPages, setPdfPages] = useState<string[]>([])
@@ -82,6 +99,7 @@ export default function NewDocumentPage() {
     const [activePlaceholderId, setActivePlaceholderId] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
+    const [savedSignatureImage, setSavedSignatureImage] = useState<string | null>(null)
 
     // Envelope data (request mode)
     const [recipients, setRecipients] = useState<{ name: string; email: string }[]>([{ name: '', email: '' }])
@@ -111,19 +129,29 @@ export default function NewDocumentPage() {
         fetchTemplate()
     }, [searchParams, isSelfSign])
 
-    // Fetch user email on mount
+    // Fetch user email on mount + restore saved profile
     useEffect(() => {
         const fetchUser = async () => {
             const { data: { user } } = await supabase.auth.getUser()
             if (user?.email) {
                 setUserEmail(user.email)
-                if (isSelfSign) {
-                    setSignerEmails([user.email])
-                }
             }
         }
         fetchUser()
-    }, [isSelfSign])
+        // Restore saved profile from localStorage
+        try {
+            const saved = localStorage.getItem('utilsign_user_profile')
+            if (saved) {
+                const profile = JSON.parse(saved)
+                if (profile.name) setUserName(profile.name)
+            }
+        } catch { /* ignore */ }
+        // Restore saved signature from localStorage
+        try {
+            const savedSig = localStorage.getItem('utilsign_saved_signature')
+            if (savedSig) setSavedSignatureImage(savedSig)
+        } catch { /* ignore */ }
+    }, [])
 
     // ── File validation & upload ───────────────────────────────────────────────
     const handleFile = useCallback((f: File) => {
@@ -137,7 +165,29 @@ export default function NewDocumentPage() {
             return
         }
         setFile(f)
+        renderPDFPreview(f)
     }, [])
+
+    // ── Render PDF preview (first page thumbnail) ─────────────────────────────
+    const renderPDFPreview = async (pdfFile: File) => {
+        try {
+            const pdfjsLib = await import('pdfjs-dist')
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+            const arrayBuffer = await pdfFile.arrayBuffer()
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+            setPreviewPageCount(pdf.numPages)
+            const page = await pdf.getPage(1)
+            const viewport = page.getViewport({ scale: 0.8 })
+            const canvas = document.createElement('canvas')
+            canvas.width = viewport.width
+            canvas.height = viewport.height
+            const ctx = canvas.getContext('2d')!
+            await page.render({ canvasContext: ctx, viewport }).promise
+            setPreviewImage(canvas.toDataURL('image/png'))
+        } catch {
+            // Preview failed silently — upload will still work
+        }
+    }
 
     const handleUpload = async () => {
         if (!file) return
@@ -230,8 +280,51 @@ export default function NewDocumentPage() {
             heightPercent,
             label: `Signature ${placeholders.length + 1}`,
             assignedSignerEmail: currentEmail,
+            fieldType: 'signature',
         }
         setPlaceholders(prev => [...prev, newPh])
+    }
+
+    // ── Drop handler for dragging field from toolbar onto PDF ──────────────────
+    const handleFieldDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        const fieldTypeStr = e.dataTransfer.getData('text/plain')
+        const fieldConfig = FIELD_TYPES.find(f => f.type === fieldTypeStr)
+        if (!fieldConfig) return
+
+        const rect = e.currentTarget.getBoundingClientRect()
+        const xPercent = ((e.clientX - rect.left) / rect.width) * 100
+        const yPercent = ((e.clientY - rect.top) / rect.height) * 100
+
+        // Clamp so field doesn't go off the PDF edge
+        const clampedX = Math.min(xPercent, 100 - fieldConfig.w)
+        const clampedY = Math.min(yPercent, 100 - fieldConfig.h)
+
+        const currentEmail = isSelfSign
+            ? userEmail
+            : (signerEmails[activeSignerIndex]?.trim() || signerEmails.find(em => em.trim() !== '') || '')
+
+        const newPh: Placeholder = {
+            id: crypto.randomUUID(),
+            pageNumber: activePage,
+            xPercent: Math.max(0, clampedX),
+            yPercent: Math.max(0, clampedY),
+            widthPercent: fieldConfig.w,
+            heightPercent: fieldConfig.h,
+            label: fieldConfig.label,
+            assignedSignerEmail: currentEmail,
+            fieldType: fieldConfig.type,
+        }
+        setPlaceholders(prev => [...prev, newPh])
+        setDraggingFieldType(null)
+    }
+
+    // ── Save user profile to localStorage ─────────────────────────────────────
+    const saveUserProfile = (name: string) => {
+        setUserName(name)
+        try {
+            localStorage.setItem('utilsign_user_profile', JSON.stringify({ name, email: userEmail }))
+        } catch { /* ignore */ }
     }
 
     const removePlaceholder = (id: string) => {
@@ -302,6 +395,9 @@ export default function NewDocumentPage() {
 
     const handleSignatureConfirm = (imageBase64: string) => {
         if (!activePlaceholderId) return
+        // Save signature permanently to localStorage
+        setSavedSignatureImage(imageBase64)
+        try { localStorage.setItem('utilsign_saved_signature', imageBase64) } catch { /* ignore */ }
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== activePlaceholderId)
             const updated = [...filtered, { placeholderId: activePlaceholderId, imageBase64 }]
@@ -338,11 +434,13 @@ export default function NewDocumentPage() {
     }
 
     const handleApplySame = (placeholderId: string) => {
-        if (signatures.length === 0) return
-        const lastSig = signatures[signatures.length - 1]
+        const sigImage = signatures.length > 0
+            ? signatures[signatures.length - 1].imageBase64
+            : savedSignatureImage
+        if (!sigImage) return
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== placeholderId)
-            const updated = [...filtered, { placeholderId, imageBase64: lastSig.imageBase64 }]
+            const updated = [...filtered, { placeholderId, imageBase64: sigImage }]
             setTimeout(() => scrollToNextUnsigned(placeholderId, updated), 400)
             return updated
         })
@@ -423,7 +521,7 @@ export default function NewDocumentPage() {
 
     // ── Stepper config ────────────────────────────────────────────────────────
     const stepLabels = isSelfSign
-        ? ['Upload', 'Placeholders', 'Sign']
+        ? ['Envelope', 'Placeholders', 'Sign']
         : ['Envelope', 'Placeholders', 'Send']
     const totalSteps = 3
 
@@ -479,59 +577,8 @@ export default function NewDocumentPage() {
             )}
 
             <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-24 pb-12">
-                {/* ════════════════ STEP 1: UPLOAD (self-sign) / ENVELOPE (request) ════════════════ */}
-                {step === 1 && isSelfSign && (
-                    <div className="max-w-xl mx-auto animate-fade-in">
-                        <h2 className="text-xl font-bold text-gray-900 mb-2">Upload your document</h2>
-                        <p className="text-gray-500 text-sm mb-6">
-                            Upload a PDF file (max 10MB) to sign it yourself.
-                        </p>
-                        <div
-                            className={`bg-white rounded-2xl border p-12 border-2 border-dashed transition-all cursor-pointer text-center ${dragActive ? 'border-[#4C00FF] bg-[#4C00FF]/5' :
-                                file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
-                                }`}
-                            onDragOver={e => { e.preventDefault(); setDragActive(true) }}
-                            onDragLeave={() => setDragActive(false)}
-                            onDrop={e => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
-                            onClick={() => fileInputRef.current?.click()}
-                        >
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="application/pdf"
-                                className="hidden"
-                                onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
-                            />
-                            {file ? (
-                                <div className="space-y-2">
-                                    <FileText className="w-8 h-8 text-emerald-600 mx-auto" />
-                                    <p className="text-gray-900 font-medium">{file.name}</p>
-                                    <p className="text-gray-400 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
-                                    <button
-                                        onClick={e => { e.stopPropagation(); setFile(null) }}
-                                        className="text-red-600 text-xs hover:text-red-300 flex items-center gap-1 mx-auto"
-                                    ><X className="w-3 h-3" /> Remove</button>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    <Upload className="w-10 h-10 text-gray-300 mx-auto" />
-                                    <p className="text-gray-900 font-medium">Drop your PDF here</p>
-                                    <p className="text-gray-400 text-xs">or click to browse</p>
-                                </div>
-                            )}
-                        </div>
-                        <button
-                            onClick={handleUpload}
-                            disabled={!file || loading}
-                            className="w-full mt-6 px-6 py-3 rounded-xl bg-[#4C00FF] text-sm font-bold text-gray-900 hover:bg-[#3C00CC] transition-all shadow-lg shadow-[#4C00FF]/20 disabled:opacity-50"
-                        >
-                            {loading ? 'Uploading…' : 'Upload & Continue'}
-                        </button>
-                    </div>
-                )}
-
-                {/* ════════════════ STEP 1 (REQUEST): ENVELOPE SETUP ════════════════ */}
-                {step === 1 && !isSelfSign && (
+                {/* ════════════════ STEP 1: UNIFIED ENVELOPE ════════════════ */}
+                {step === 1 && (
                     <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
                         <div>
                             <h2 className="text-xl font-bold text-gray-900 mb-1">Create your envelope</h2>
@@ -544,25 +591,60 @@ export default function NewDocumentPage() {
                                 <div className="w-7 h-7 rounded-lg bg-[#4C00FF]/10 border border-[#4C00FF]/20 flex items-center justify-center">
                                     <FileText className="w-4 h-4 text-[#4C00FF]" />
                                 </div>
-                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Add Document</h3>
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Add Documents</h3>
                             </div>
-                            <div
-                                className={`p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer text-center ${dragActive ? 'border-sky-500 bg-sky-500/5' :
-                                    file ? 'border-emerald-500/40 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'
-                                    }`}
-                                onDragOver={e => { e.preventDefault(); setDragActive(true) }}
-                                onDragLeave={() => setDragActive(false)}
-                                onDrop={e => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept="application/pdf"
-                                    className="hidden"
-                                    onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
-                                />
-                                {file ? (
+
+                            {/* File already selected — show preview */}
+                            {file && previewImage ? (
+                                <div className="flex items-start gap-4">
+                                    <div className="shrink-0 border border-gray-200 rounded-lg overflow-hidden shadow-sm bg-white" style={{ width: 140 }}>
+                                        <img src={previewImage} alt="Document preview" className="w-full" draggable={false} />
+                                    </div>
+                                    <div className="flex-1 min-w-0 pt-1">
+                                        <p className="text-gray-900 font-medium text-sm truncate">{file.name}</p>
+                                        <p className="text-gray-500 text-xs mt-0.5">{previewPageCount} page{previewPageCount !== 1 ? 's' : ''}</p>
+                                        <button
+                                            onClick={() => { setFile(null); setPreviewImage(null); setPreviewPageCount(0) }}
+                                            className="flex items-center gap-1 mt-2 text-red-500 hover:text-red-700 text-xs font-medium transition-colors"
+                                        >
+                                            <Trash2 className="w-3 h-3" /> Remove
+                                        </button>
+                                    </div>
+                                    {/* Drop zone to add more (or replace) */}
+                                    <div
+                                        className={`flex-1 p-6 border-2 border-dashed rounded-xl transition-all cursor-pointer text-center ${dragActive ? 'border-sky-500 bg-sky-500/5' : 'border-gray-200 hover:border-gray-300'}`}
+                                        onDragOver={e => { e.preventDefault(); setDragActive(true) }}
+                                        onDragLeave={() => setDragActive(false)}
+                                        onDrop={e => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
+                                        onClick={() => fileInputRef.current?.click()}
+                                    >
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="application/pdf"
+                                            className="hidden"
+                                            onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
+                                        />
+                                        <Upload className="w-6 h-6 text-gray-300 mx-auto mb-1" />
+                                        <p className="text-gray-500 text-xs">Drop your files here or</p>
+                                        <span className="inline-flex items-center gap-1 mt-2 px-4 py-1.5 rounded-lg bg-[#4C00FF] text-white text-xs font-semibold hover:bg-[#3D00CC] transition-colors">
+                                            Upload <ChevronDown className="w-3 h-3" />
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : file ? (
+                                /* File selected but preview still loading */
+                                <div
+                                    className="p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer text-center border-emerald-500/40 bg-emerald-50"
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="application/pdf"
+                                        className="hidden"
+                                        onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
+                                    />
                                     <div className="flex items-center justify-center gap-3">
                                         <FileText className="w-6 h-6 text-emerald-600" />
                                         <div className="text-left">
@@ -570,18 +652,34 @@ export default function NewDocumentPage() {
                                             <p className="text-gray-500 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                                         </div>
                                         <button
-                                            onClick={e => { e.stopPropagation(); setFile(null) }}
+                                            onClick={e => { e.stopPropagation(); setFile(null); setPreviewImage(null); setPreviewPageCount(0) }}
                                             className="text-red-600 hover:text-red-300 ml-2"
                                         ><X className="w-4 h-4" /></button>
                                     </div>
-                                ) : (
+                                </div>
+                            ) : (
+                                /* No file selected — show drop zone */
+                                <div
+                                    className={`p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer text-center ${dragActive ? 'border-sky-500 bg-sky-500/5' : 'border-gray-200 hover:border-gray-300'}`}
+                                    onDragOver={e => { e.preventDefault(); setDragActive(true) }}
+                                    onDragLeave={() => setDragActive(false)}
+                                    onDrop={e => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="application/pdf"
+                                        className="hidden"
+                                        onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
+                                    />
                                     <div className="space-y-2">
                                         <Upload className="w-8 h-8 text-gray-400 mx-auto" />
                                         <p className="text-gray-900 font-medium text-sm">Drop your PDF here</p>
                                         <p className="text-gray-400 text-xs">or click to browse · max 10MB</p>
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* ── Section 2: Add Recipients ── */}
@@ -592,83 +690,123 @@ export default function NewDocumentPage() {
                                 </div>
                                 <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Add Recipients</h3>
                             </div>
-                            <div className="space-y-3">
-                                {recipients.map((r, i) => (
-                                    <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-gray-100/50 border border-gray-200/50">
-                                        {/* Priority badge */}
-                                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-gray-900 shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
-                                            {i + 1}
-                                        </div>
-                                        {/* Name */}
-                                        <input
-                                            type="text"
-                                            className="input text-sm py-1.5 flex-1 min-w-0"
-                                            placeholder="Name"
-                                            value={r.name}
-                                            onChange={e => {
-                                                const updated = [...recipients]
-                                                updated[i] = { ...updated[i], name: e.target.value }
-                                                setRecipients(updated)
-                                            }}
-                                        />
-                                        {/* Email */}
-                                        <input
-                                            type="email"
-                                            className="input text-sm py-1.5 flex-1 min-w-0"
-                                            placeholder="email@example.com"
-                                            value={r.email}
-                                            onChange={e => {
-                                                const updated = [...recipients]
-                                                updated[i] = { ...updated[i], email: e.target.value }
-                                                setRecipients(updated)
-                                            }}
-                                        />
-                                        {/* Reorder */}
-                                        <div className="flex flex-col gap-0.5 shrink-0">
+
+                            {/* I'm the only signer checkbox */}
+                            <label className="flex items-center gap-2.5 cursor-pointer mb-4 py-2">
+                                <input
+                                    type="checkbox"
+                                    checked={isSelfSign}
+                                    onChange={(e) => {
+                                        setIsSelfSign(e.target.checked)
+                                        if (e.target.checked && userEmail) {
+                                            setSignerEmails([userEmail])
+                                        }
+                                    }}
+                                    className="w-[18px] h-[18px] rounded border-gray-300 text-[#4C00FF] accent-[#4C00FF] cursor-pointer"
+                                />
+                                <span className="text-sm font-medium text-gray-700">I&apos;m the only signer</span>
+                                <Info className="w-3.5 h-3.5 text-gray-400" />
+                            </label>
+
+                            {/* Self-signer name field with auto-suggest */}
+                            {isSelfSign && (
+                                <div className="mt-3 p-3 rounded-xl bg-[#4C00FF]/5 border border-[#4C00FF]/10">
+                                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Your Name</label>
+                                    <input
+                                        type="text"
+                                        className="input text-sm py-2 w-full"
+                                        placeholder="Enter your name"
+                                        value={userName}
+                                        onChange={(e) => saveUserProfile(e.target.value)}
+                                    />
+                                    <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+                                        <Mail className="w-3 h-3" /> Signing as {userEmail || 'your account email'}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Recipient fields — hidden when self-sign */}
+                            {!isSelfSign && (
+                                <>
+                                    <div className="space-y-3">
+                                        {recipients.map((r, i) => (
+                                            <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-gray-100/50 border border-gray-200/50">
+                                                {/* Priority badge */}
+                                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-gray-900 shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }}>
+                                                    {i + 1}
+                                                </div>
+                                                {/* Name */}
+                                                <input
+                                                    type="text"
+                                                    className="input text-sm py-1.5 flex-1 min-w-0"
+                                                    placeholder="Name"
+                                                    value={r.name}
+                                                    onChange={e => {
+                                                        const updated = [...recipients]
+                                                        updated[i] = { ...updated[i], name: e.target.value }
+                                                        setRecipients(updated)
+                                                    }}
+                                                />
+                                                {/* Email */}
+                                                <input
+                                                    type="email"
+                                                    className="input text-sm py-1.5 flex-1 min-w-0"
+                                                    placeholder="email@example.com"
+                                                    value={r.email}
+                                                    onChange={e => {
+                                                        const updated = [...recipients]
+                                                        updated[i] = { ...updated[i], email: e.target.value }
+                                                        setRecipients(updated)
+                                                    }}
+                                                />
+                                                {/* Reorder */}
+                                                <div className="flex flex-col gap-0.5 shrink-0">
+                                                    <button
+                                                        disabled={i === 0}
+                                                        onClick={() => {
+                                                            const updated = [...recipients]
+                                                                ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
+                                                            setRecipients(updated)
+                                                        }}
+                                                        className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
+                                                    >▲</button>
+                                                    <button
+                                                        disabled={i === recipients.length - 1}
+                                                        onClick={() => {
+                                                            const updated = [...recipients]
+                                                                ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
+                                                            setRecipients(updated)
+                                                        }}
+                                                        className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
+                                                    >▼</button>
+                                                </div>
+                                                {/* Remove */}
+                                                {recipients.length > 1 && (
+                                                    <button
+                                                        onClick={() => setRecipients(prev => prev.filter((_, j) => j !== i))}
+                                                        className="text-red-600 hover:text-red-300 shrink-0"
+                                                    ><X className="w-4 h-4" /></button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="flex gap-2 mt-3">
+                                        <button
+                                            onClick={() => setRecipients(prev => [...prev, { name: '', email: '' }])}
+                                            className="btn-secondary text-xs px-3 py-1.5"
+                                        ><Plus className="w-3 h-3 inline mr-1" /> Add Recipient</button>
+                                        {userEmail && !recipients.some(r => r.email.toLowerCase() === userEmail.toLowerCase()) && (
                                             <button
-                                                disabled={i === 0}
-                                                onClick={() => {
-                                                    const updated = [...recipients]
-                                                        ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
-                                                    setRecipients(updated)
-                                                }}
-                                                className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
-                                            >▲</button>
-                                            <button
-                                                disabled={i === recipients.length - 1}
-                                                onClick={() => {
-                                                    const updated = [...recipients]
-                                                        ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
-                                                    setRecipients(updated)
-                                                }}
-                                                className="text-gray-400 hover:text-gray-900 disabled:opacity-20 text-[10px] leading-none"
-                                            >▼</button>
-                                        </div>
-                                        {/* Remove */}
-                                        {recipients.length > 1 && (
-                                            <button
-                                                onClick={() => setRecipients(prev => prev.filter((_, j) => j !== i))}
-                                                className="text-red-600 hover:text-red-300 shrink-0"
-                                            ><X className="w-4 h-4" /></button>
+                                                onClick={() => setRecipients(prev => [...prev, { name: userEmail.split('@')[0], email: userEmail }])}
+                                                className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all bg-[#4C00FF] hover:bg-[#3C00CC] text-white shadow-sm"
+                                            ><Plus className="w-3 h-3 inline mr-1" /> Add Me</button>
                                         )}
                                     </div>
-                                ))}
-                            </div>
-                            <div className="flex gap-2 mt-3">
-                                <button
-                                    onClick={() => setRecipients(prev => [...prev, { name: '', email: '' }])}
-                                    className="btn-secondary text-xs px-3 py-1.5"
-                                ><Plus className="w-3 h-3 inline mr-1" /> Add Recipient</button>
-                                {userEmail && !recipients.some(r => r.email.toLowerCase() === userEmail.toLowerCase()) && (
-                                    <button
-                                        onClick={() => setRecipients(prev => [...prev, { name: userEmail.split('@')[0], email: userEmail }])}
-                                        className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all bg-[#4C00FF] hover:bg-[#3C00CC] text-white shadow-sm"
-                                    ><Plus className="w-3 h-3 inline mr-1" /> Add Me</button>
-                                )}
-                            </div>
-                            <p className="text-gray-400 text-[11px] mt-3 flex items-center gap-1">
-                                <Info className="w-3 h-3" /> Priority order determines who signs first. Drag or use arrows to reorder.
-                            </p>
+                                    <p className="text-gray-400 text-[11px] mt-3 flex items-center gap-1">
+                                        <Info className="w-3 h-3" /> Priority order determines who signs first. Drag or use arrows to reorder.
+                                    </p>
+                                </>
+                            )}
                         </div>
 
                         {/* ── Section 3: Add Message ── */}
@@ -730,10 +868,15 @@ export default function NewDocumentPage() {
                             onClick={async () => {
                                 // Validate
                                 if (!file) { setError('Please add a document.'); return }
-                                const validRecipients = recipients.filter(r => r.email.trim())
-                                if (validRecipients.length === 0) { setError('Add at least one recipient with an email address.'); return }
-                                // Populate signerEmails from recipients (order = priority)
-                                setSignerEmails(validRecipients.map(r => r.email.trim()))
+                                if (isSelfSign) {
+                                    // Self-sign: set signer as current user, skip recipient validation
+                                    setSignerEmails([userEmail])
+                                } else {
+                                    const validRecipients = recipients.filter(r => r.email.trim())
+                                    if (validRecipients.length === 0) { setError('Add at least one recipient with an email address.'); return }
+                                    // Populate signerEmails from recipients (order = priority)
+                                    setSignerEmails(validRecipients.map(r => r.email.trim()))
+                                }
                                 // Set default subject if empty
                                 if (!emailSubject.trim()) {
                                     setEmailSubject(`Please sign: ${file.name}`)
@@ -760,8 +903,37 @@ export default function NewDocumentPage() {
                                 </h2>
                                 <p className="text-gray-400 text-xs mt-1 leading-relaxed">
                                     {isSelfSign
-                                        ? 'Click and drag on the PDF to place signature boxes.'
-                                        : 'Click and drag on the PDF. Assign each placeholder to a signer.'}
+                                        ? 'Drag the Sign field from the toolbar below onto the PDF, or click and drag directly.'
+                                        : 'Drag fields from the toolbar below onto the PDF. Assign each field to a signer.'}
+                                </p>
+                            </div>
+
+                            {/* ── Draggable Fields Toolbar ── */}
+                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Fields</p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                    {(isSelfSign ? FIELD_TYPES.filter(f => f.type === 'signature') : FIELD_TYPES).map(field => (
+                                        <div
+                                            key={field.type}
+                                            draggable
+                                            onDragStart={(e) => {
+                                                e.dataTransfer.setData('text/plain', field.type)
+                                                setDraggingFieldType(field.type)
+                                            }}
+                                            onDragEnd={() => setDraggingFieldType(null)}
+                                            className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing border transition-all select-none ${draggingFieldType === field.type
+                                                ? 'border-[#4C00FF] bg-[#4C00FF]/10 shadow-sm'
+                                                : 'border-gray-200 hover:border-gray-300 bg-gray-50 hover:bg-gray-100'
+                                                }`}
+                                        >
+                                            <GripHorizontal className="w-3 h-3 text-gray-400 shrink-0" />
+                                            <field.icon className="w-3.5 h-3.5 shrink-0" style={{ color: field.color }} />
+                                            <span className="text-gray-700">{field.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="text-gray-400 text-[10px] mt-2 flex items-center gap-1">
+                                    <GripHorizontal className="w-3 h-3" /> Drag onto the document to place
                                 </p>
                             </div>
 
@@ -848,25 +1020,75 @@ export default function NewDocumentPage() {
                                             {placeholders.length} Placeholder{placeholders.length !== 1 ? 's' : ''}
                                         </p>
                                         <div className="space-y-1 max-h-40 overflow-y-auto">
-                                            {placeholders.map(p => (
-                                                <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-gray-600 py-0.5">
-                                                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
-                                                    <span className="truncate flex-1">P{p.pageNumber} — {p.assignedSignerEmail || 'unassigned'}</span>
-                                                    <button onClick={() => removePlaceholder(p.id)} className="text-red-600 hover:text-red-300 shrink-0">
-                                                        <Trash2 className="w-3 h-3" />
-                                                    </button>
-                                                </div>
-                                            ))}
+                                            {placeholders.map(p => {
+                                                const fc = FIELD_TYPES.find(f => f.type === p.fieldType)
+                                                return (
+                                                    <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-gray-600 py-0.5">
+                                                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
+                                                        <span className="truncate flex-1">{fc?.label || p.label} — P{p.pageNumber}</span>
+                                                        <button onClick={() => removePlaceholder(p.id)} className="text-red-600 hover:text-red-300 shrink-0">
+                                                            <Trash2 className="w-3 h-3" />
+                                                        </button>
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
                                     </div>
                                 )
                             }
 
+                            {/* Saved signature — drag to sign (self-sign only) */}
+                            {isSelfSign && savedSignatureImage && (
+                                <div className="bg-white rounded-2xl border border-[#4C00FF]/20 shadow-sm p-3">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Your Saved Signature</p>
+                                    <div
+                                        draggable
+                                        onDragStart={(e) => {
+                                            e.dataTransfer.setData('application/signature', savedSignatureImage)
+                                            e.dataTransfer.effectAllowed = 'copy'
+                                        }}
+                                        className="border-2 border-dashed border-[#4C00FF]/30 rounded-lg p-2 cursor-grab active:cursor-grabbing hover:border-[#4C00FF]/60 hover:bg-[#4C00FF]/5 transition-all flex flex-col items-center gap-1.5"
+                                    >
+                                        <img src={savedSignatureImage} alt="Your signature" className="max-h-12 object-contain" draggable={false} />
+                                        <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                            <GripHorizontal className="w-3 h-3" /> Drag onto a Sign field
+                                        </span>
+                                    </div>
+                                    {placeholders.length > 0 && placeholders.some(p => !isPlaceholderSigned(p.id)) && (
+                                        <button
+                                            onClick={() => {
+                                                const unsigned = placeholders.filter(p => !isPlaceholderSigned(p.id))
+                                                setSignatures(prev => [
+                                                    ...prev,
+                                                    ...unsigned.map(p => ({ placeholderId: p.id, imageBase64: savedSignatureImage }))
+                                                ])
+                                            }}
+                                            className="w-full mt-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-[#4C00FF] text-white hover:bg-[#3D00CC] transition-colors"
+                                        >
+                                            ✓ Sign All ({placeholders.filter(p => !isPlaceholderSigned(p.id)).length} remaining)
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Action buttons */}
                             <div className="flex flex-col gap-2 pt-2">
-                                <button onClick={handleSavePlaceholders} disabled={loading} className="btn-primary text-xs w-full">
-                                    {loading ? 'Saving…' : (isSelfSign ? 'Save & Sign →' : 'Save & Continue →')}
-                                </button>
+                                {isSelfSign && placeholders.length > 0 && allSigned ? (
+                                    <button
+                                        onClick={async () => {
+                                            await handleSavePlaceholders()
+                                            // handleSavePlaceholders moves to step 3, but since all signed we submit right away
+                                        }}
+                                        disabled={loading || submitting}
+                                        className="btn-primary text-xs w-full"
+                                    >
+                                        {loading ? 'Saving…' : '✓ Finalize & Save'}
+                                    </button>
+                                ) : (
+                                    <button onClick={handleSavePlaceholders} disabled={loading} className="btn-primary text-xs w-full">
+                                        {loading ? 'Saving…' : (isSelfSign ? 'Save & Sign →' : 'Save & Continue →')}
+                                    </button>
+                                )}
                                 <button onClick={() => setStep(1)} className="btn-secondary text-xs w-full">
                                     <ArrowLeft className="w-3 h-3 inline mr-1" /> Back
                                 </button>
@@ -877,11 +1099,34 @@ export default function NewDocumentPage() {
                         < div className="flex-1 min-w-0" >
                             <div
                                 ref={pdfContainerRef}
-                                className="relative inline-block border border-gray-200 rounded-xl overflow-hidden cursor-crosshair select-none w-full"
+                                className={`relative inline-block border rounded-xl overflow-hidden cursor-crosshair select-none w-full transition-colors ${draggingFieldType ? 'border-[#4C00FF] border-2 bg-[#4C00FF]/[0.02]' : 'border-gray-200'}`}
                                 onMouseDown={handlePageMouseDown}
                                 onMouseMove={handlePageMouseMove}
                                 onMouseUp={handlePageMouseUp}
                                 onMouseLeave={() => setIsDragging(false)}
+                                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+                                onDrop={(e) => {
+                                    // Handle signature drops (self-sign)
+                                    const sigData = e.dataTransfer.getData('application/signature')
+                                    if (sigData && isSelfSign) {
+                                        e.preventDefault()
+                                        const rect = e.currentTarget.getBoundingClientRect()
+                                        const dropX = ((e.clientX - rect.left) / rect.width) * 100
+                                        const dropY = ((e.clientY - rect.top) / rect.height) * 100
+                                        const target = placeholders
+                                            .filter(p => p.pageNumber === activePage && !isPlaceholderSigned(p.id))
+                                            .find(p =>
+                                                dropX >= p.xPercent && dropX <= p.xPercent + p.widthPercent &&
+                                                dropY >= p.yPercent && dropY <= p.yPercent + p.heightPercent
+                                            )
+                                        if (target) {
+                                            setSignatures(prev => [...prev.filter(s => s.placeholderId !== target.id), { placeholderId: target.id, imageBase64: sigData }])
+                                        }
+                                        return
+                                    }
+                                    // Handle field type drops
+                                    handleFieldDrop(e)
+                                }}
                             >
                                 {pdfPages[activePage - 1] && (
                                     <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="w-full" draggable={false} />
@@ -901,161 +1146,241 @@ export default function NewDocumentPage() {
 
                                 {placeholders
                                     .filter(p => p.pageNumber === activePage)
-                                    .map(p => (
-                                        <div
-                                            key={p.id}
-                                            className="placeholder-box absolute group"
-                                            style={{
-                                                left: `${p.xPercent}%`,
-                                                top: `${p.yPercent}%`,
-                                                width: `${p.widthPercent}%`,
-                                                height: `${p.heightPercent}%`,
-                                                border: `2px solid ${getSignerColor(p.assignedSignerEmail)}`,
-                                                background: `${getSignerColor(p.assignedSignerEmail)}15`,
-                                            }}
-                                        >
-                                            <div className="absolute -top-7 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" style={{ zIndex: 50 }}>
-                                                {!isSelfSign && (
-                                                    <select
-                                                        className="text-[10px] bg-gray-100 text-gray-900 rounded px-1 py-0.5 border border-gray-300"
-                                                        value={p.assignedSignerEmail}
-                                                        onChange={e => updatePlaceholderEmail(p.id, e.target.value)}
-                                                        onClick={e => e.stopPropagation()}
-                                                        onMouseDown={e => e.stopPropagation()}
-                                                    >
-                                                        {signerEmails.filter(Boolean).map(email => (
-                                                            <option key={email} value={email}>{email}</option>
-                                                        ))}
-                                                    </select>
+                                    .map(p => {
+                                        const signed = isSelfSign && isPlaceholderSigned(p.id)
+                                        const sig = isSelfSign ? signatures.find(s => s.placeholderId === p.id) : null
+                                        return (
+                                            <div
+                                                key={p.id}
+                                                className={`placeholder-box absolute group ${signed ? 'border-2 border-emerald-500 bg-emerald-500/10' : ''}`}
+                                                style={{
+                                                    left: `${p.xPercent}%`,
+                                                    top: `${p.yPercent}%`,
+                                                    width: `${p.widthPercent}%`,
+                                                    height: `${p.heightPercent}%`,
+                                                    ...(!signed ? { border: `2px solid ${getSignerColor(p.assignedSignerEmail)}`, background: `${getSignerColor(p.assignedSignerEmail)}15` } : {}),
+                                                }}
+                                            >
+                                                {signed && sig ? (
+                                                    <img src={sig.imageBase64} alt="Signed" className="w-full h-full object-contain" />
+                                                ) : (
+                                                    <>
+                                                        <div className="absolute -top-7 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" style={{ zIndex: 50 }}>
+                                                            {!isSelfSign && (
+                                                                <select
+                                                                    className="text-[10px] bg-gray-100 text-gray-900 rounded px-1 py-0.5 border border-gray-300"
+                                                                    value={p.assignedSignerEmail}
+                                                                    onChange={e => updatePlaceholderEmail(p.id, e.target.value)}
+                                                                    onClick={e => e.stopPropagation()}
+                                                                    onMouseDown={e => e.stopPropagation()}
+                                                                >
+                                                                    {signerEmails.filter(Boolean).map(email => (
+                                                                        <option key={email} value={email}>{email}</option>
+                                                                    ))}
+                                                                </select>
+                                                            )}
+                                                            <button
+                                                                className="text-red-600 hover:text-red-300 bg-gray-100 rounded p-0.5"
+                                                                onClick={e => { e.stopPropagation(); removePlaceholder(p.id) }}
+                                                                onMouseDown={e => e.stopPropagation()}
+                                                            ><X className="w-3 h-3" /></button>
+                                                        </div>
+                                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                            <span className="text-[10px] font-medium opacity-70 flex items-center gap-1" style={{ color: getSignerColor(p.assignedSignerEmail) }}>
+                                                                {(() => { const fc = FIELD_TYPES.find(f => f.type === p.fieldType); return fc ? <><fc.icon className="w-2.5 h-2.5" /> {fc.label}</> : <><PenTool className="w-2.5 h-2.5" /> {p.label}</> })()}
+                                                            </span>
+                                                        </div>
+                                                    </>
                                                 )}
-                                                <button
-                                                    className="text-red-600 hover:text-red-300 bg-gray-100 rounded p-0.5"
-                                                    onClick={e => { e.stopPropagation(); removePlaceholder(p.id) }}
-                                                    onMouseDown={e => e.stopPropagation()}
-                                                ><X className="w-3 h-3" /></button>
                                             </div>
-                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                <span className="text-[10px] font-medium opacity-60 flex items-center gap-1" style={{ color: getSignerColor(p.assignedSignerEmail) }}>
-                                                    <PenTool className="w-2.5 h-2.5" /> {p.label}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                             </div>
                         </div >
                     </div >
-                )}
+                )
+                }
 
                 {/* ════════════════ STEP 3 (SELF-SIGN): INLINE SIGNING ════════════════ */}
                 {
                     step === 3 && isSelfSign && (
-                        <div className="animate-fade-in">
-                            <div className="flex items-center justify-between mb-6">
+                        <div className="animate-fade-in flex gap-5 items-start" style={{ minHeight: 'calc(100vh - 140px)' }}>
+                            {/* ── Left Sidebar ── */}
+                            <div className="w-72 shrink-0 space-y-4 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-1">
                                 <div>
-                                    <h2 className="text-xl font-bold text-gray-900">Sign Your Document</h2>
-                                    <p className="text-gray-500 text-sm mt-0.5">Click on each highlighted area to add your signature.</p>
+                                    <h2 className="text-lg font-bold text-gray-900">Sign Your Document</h2>
+                                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">
+                                        {savedSignatureImage
+                                            ? 'Drag your saved signature onto each field, or click a field to sign.'
+                                            : 'Click on each highlighted area to add your signature.'}
+                                    </p>
                                 </div>
-                                <div className="flex items-center gap-2 text-xs text-gray-500">
-                                    <span>{signatures.length}/{placeholders.length} signed</span>
-                                    <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+
+                                {/* Progress */}
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                    <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+                                        <span>{signatures.length}/{placeholders.length} signed</span>
+                                    </div>
+                                    <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
                                         <div
                                             className="h-full rounded-full bg-violet-500 transition-all"
                                             style={{ width: `${placeholders.length > 0 ? (signatures.length / placeholders.length) * 100 : 0}%` }}
                                         />
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Page navigation */}
-                            {pdfPages.length > 1 && (
-                                <div className="flex items-center gap-2 mb-4">
-                                    {pdfPages.map((_, i) => (
-                                        <button
-                                            key={i}
-                                            onClick={() => setActivePage(i + 1)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-[#4C00FF] text-gray-900' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                                        >Page {i + 1}</button>
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* PDF with signing placeholders */}
-                            <div className="relative inline-block border border-gray-200 rounded-xl overflow-hidden">
-                                {pdfPages[activePage - 1] && (
-                                    <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="max-w-full" draggable={false} />
+                                {/* Saved signature — draggable */}
+                                {savedSignatureImage && (
+                                    <div className="bg-white rounded-2xl border border-[#4C00FF]/20 shadow-sm p-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Your Saved Signature</p>
+                                        <div
+                                            draggable
+                                            onDragStart={(e) => {
+                                                e.dataTransfer.setData('application/signature', savedSignatureImage)
+                                                e.dataTransfer.effectAllowed = 'copy'
+                                            }}
+                                            className="border-2 border-dashed border-[#4C00FF]/30 rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-[#4C00FF]/60 hover:bg-[#4C00FF]/5 transition-all flex flex-col items-center gap-2"
+                                        >
+                                            <img src={savedSignatureImage} alt="Your signature" className="max-h-16 object-contain" draggable={false} />
+                                            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                                <GripHorizontal className="w-3 h-3" /> Drag onto a field
+                                            </span>
+                                        </div>
+                                        {/* Apply to all unsigned */}
+                                        {placeholders.some(p => !isPlaceholderSigned(p.id)) && (
+                                            <button
+                                                onClick={() => {
+                                                    const unsigned = placeholders.filter(p => !isPlaceholderSigned(p.id))
+                                                    setSignatures(prev => [
+                                                        ...prev,
+                                                        ...unsigned.map(p => ({ placeholderId: p.id, imageBase64: savedSignatureImage }))
+                                                    ])
+                                                }}
+                                                className="w-full mt-2 px-3 py-2 rounded-lg text-xs font-semibold bg-[#4C00FF] text-white hover:bg-[#3D00CC] transition-colors"
+                                            >
+                                                ✓ Apply to All ({placeholders.filter(p => !isPlaceholderSigned(p.id)).length} remaining)
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
 
-                                {placeholders
-                                    .filter(p => p.pageNumber === activePage)
-                                    .map(p => {
-                                        const signed = isPlaceholderSigned(p.id)
-                                        const sig = signatures.find(s => s.placeholderId === p.id)
-                                        const canReplicateHere = !signed && lastSignatureImage
+                                {/* Page navigation */}
+                                {pdfPages.length > 1 && (
+                                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Pages</p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {pdfPages.map((_, i) => (
+                                                <button
+                                                    key={i}
+                                                    onClick={() => setActivePage(i + 1)}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-[#4C00FF] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                                >{i + 1}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
 
-                                        return (
-                                            <div
-                                                key={p.id}
-                                                ref={el => { placeholderRefs.current[p.id] = el }}
-                                                className={`absolute transition-all ${signed
-                                                    ? 'border-2 border-emerald-500 bg-emerald-500/10'
-                                                    : canReplicateHere
-                                                        ? 'border-2 border-amber-500 bg-amber-50'
-                                                        : 'border-2 border-[#4C00FF] bg-[#4C00FF]/5 hover:bg-[#4C00FF]/10 animate-pulse-slow cursor-pointer'
-                                                    }`}
-                                                style={{
-                                                    left: `${p.xPercent}%`,
-                                                    top: `${p.yPercent}%`,
-                                                    width: `${p.widthPercent}%`,
-                                                    height: `${p.heightPercent}%`,
-                                                }}
-                                                onClick={() => {
-                                                    if (!signed && !canReplicateHere) handlePlaceholderClick(p.id)
-                                                }}
-                                            >
-                                                {signed && sig ? (
-                                                    <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain" />
-                                                ) : canReplicateHere ? (
-                                                    <div className="flex flex-col items-center justify-center h-full w-full gap-0.5 p-0.5">
-                                                        <img
-                                                            src={lastSignatureImage}
-                                                            alt="Previous signature"
-                                                            className="object-contain opacity-50"
-                                                            style={{ maxHeight: '55%', maxWidth: '90%' }}
-                                                        />
-                                                        <div className="flex gap-1 flex-shrink-0">
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
-                                                                className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap"
-                                                            >✓ Apply Same</button>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
-                                                                className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-gray-600 hover:bg-gray-500 text-white transition-colors whitespace-nowrap"
-                                                            >✎ Sign New</button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex items-center justify-center h-full">
-                                                        <span className="text-[#4C00FF] text-[10px] font-medium">✍ Click to sign</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )
-                                    })}
+                                {/* Action buttons */}
+                                <div className="flex flex-col gap-2 pt-2">
+                                    <button
+                                        onClick={handleSelfSignSubmit}
+                                        disabled={!allSigned || submitting}
+                                        className="btn-primary text-xs w-full"
+                                    >
+                                        {submitting ? 'Submitting…' : allSigned ? '✓ Finalize & Save' : `Sign all ${placeholders.length} fields first`}
+                                    </button>
+                                    <button onClick={() => setStep(2)} disabled={submitting} className="btn-secondary text-xs w-full">
+                                        <ArrowLeft className="w-3 h-3 inline mr-1" /> Back
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Action buttons */}
-                            <div className="flex items-center gap-3 mt-6">
-                                <button onClick={() => setStep(2)} disabled={submitting} className="btn-secondary text-sm">
-                                    ← Back
-                                </button>
-                                <div className="flex-1" />
-                                <button
-                                    onClick={handleSelfSignSubmit}
-                                    disabled={!allSigned || submitting}
-                                    className="btn-primary text-sm"
+                            {/* ── Right: PDF Canvas ── */}
+                            <div className="flex-1 min-w-0">
+                                <div
+                                    className="relative inline-block border border-gray-200 rounded-xl overflow-hidden w-full"
+                                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+                                    onDrop={(e) => {
+                                        e.preventDefault()
+                                        const sigData = e.dataTransfer.getData('application/signature')
+                                        if (!sigData) return
+                                        // Find which placeholder we dropped onto
+                                        const rect = e.currentTarget.getBoundingClientRect()
+                                        const dropX = ((e.clientX - rect.left) / rect.width) * 100
+                                        const dropY = ((e.clientY - rect.top) / rect.height) * 100
+                                        const target = placeholders
+                                            .filter(p => p.pageNumber === activePage && !isPlaceholderSigned(p.id))
+                                            .find(p =>
+                                                dropX >= p.xPercent && dropX <= p.xPercent + p.widthPercent &&
+                                                dropY >= p.yPercent && dropY <= p.yPercent + p.heightPercent
+                                            )
+                                        if (target) {
+                                            setSignatures(prev => [...prev.filter(s => s.placeholderId !== target.id), { placeholderId: target.id, imageBase64: sigData }])
+                                        }
+                                    }}
                                 >
-                                    {submitting ? 'Submitting…' : allSigned ? '✓ Finalize & Save' : `Sign all ${placeholders.length} fields first`}
-                                </button>
+                                    {pdfPages[activePage - 1] && (
+                                        <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="w-full" draggable={false} />
+                                    )}
+
+                                    {placeholders
+                                        .filter(p => p.pageNumber === activePage)
+                                        .map(p => {
+                                            const signed = isPlaceholderSigned(p.id)
+                                            const sig = signatures.find(s => s.placeholderId === p.id)
+                                            const canReplicateHere = !signed && (lastSignatureImage || savedSignatureImage)
+                                            const replicateImage = lastSignatureImage || savedSignatureImage
+
+                                            return (
+                                                <div
+                                                    key={p.id}
+                                                    ref={el => { placeholderRefs.current[p.id] = el }}
+                                                    className={`absolute transition-all ${signed
+                                                        ? 'border-2 border-emerald-500 bg-emerald-500/10'
+                                                        : canReplicateHere
+                                                            ? 'border-2 border-amber-500 bg-amber-50 cursor-pointer'
+                                                            : 'border-2 border-[#4C00FF] bg-[#4C00FF]/5 hover:bg-[#4C00FF]/10 animate-pulse-slow cursor-pointer'
+                                                        }`}
+                                                    style={{
+                                                        left: `${p.xPercent}%`,
+                                                        top: `${p.yPercent}%`,
+                                                        width: `${p.widthPercent}%`,
+                                                        height: `${p.heightPercent}%`,
+                                                    }}
+                                                    onClick={() => {
+                                                        if (!signed && !canReplicateHere) handlePlaceholderClick(p.id)
+                                                    }}
+                                                >
+                                                    {signed && sig ? (
+                                                        <img src={sig.imageBase64} alt="Signature" className="w-full h-full object-contain" />
+                                                    ) : canReplicateHere ? (
+                                                        <div className="flex flex-col items-center justify-center h-full w-full gap-0.5 p-0.5">
+                                                            <img
+                                                                src={replicateImage!}
+                                                                alt="Previous signature"
+                                                                className="object-contain opacity-50"
+                                                                style={{ maxHeight: '55%', maxWidth: '90%' }}
+                                                            />
+                                                            <div className="flex gap-1 flex-shrink-0">
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
+                                                                    className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap"
+                                                                >✓ Apply</button>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id) }}
+                                                                    className="px-1.5 py-0.5 rounded text-[8px] font-semibold bg-gray-600 hover:bg-gray-500 text-white transition-colors whitespace-nowrap"
+                                                                >✎ New</button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center h-full">
+                                                            <span className="text-[#4C00FF] text-[10px] font-medium">✍ Click to sign</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )
+                                        })}
+                                </div>
                             </div>
                         </div>
                     )
