@@ -6,7 +6,8 @@ import SignatureModal from '@/components/SignatureModal'
 import {
     PenTool, Check, AlertCircle, Clock, ShieldCheck,
     ChevronUp, ChevronDown, CheckCircle, Info, Lock,
-    ArrowLeft, Download, Calendar, Type, Briefcase, User
+    ArrowLeft, Download, Calendar, Type, Briefcase, User,
+    Navigation
 } from 'lucide-react'
 
 type SignerState = 'loading' | 'otp' | 'document' | 'success' | 'error'
@@ -79,7 +80,7 @@ export default function SignPage() {
         } catch { /* ignore */ }
     }, [signerEmail])
 
-    // Refs for auto-scroll
+    // Refs for placeholder elements (used by Go to Sign button)
     const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
     // ── Step 1: Validate token + send OTP ──────────────────────────────────────
@@ -154,13 +155,6 @@ export default function SignPage() {
             setSessionToken(data.sessionToken)
             await loadDocument(data.sessionToken)
             setState('document')
-            // Auto-scroll to first unsigned placeholder after document renders
-            setTimeout(() => {
-                const firstUnsigned = document.querySelector('[data-placeholder="unsigned"]') as HTMLElement
-                if (firstUnsigned) {
-                    firstUnsigned.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }
-            }, 500)
         } catch {
             setOtpError('Something went wrong. Please try again.')
         } finally {
@@ -385,6 +379,7 @@ export default function SignPage() {
             handleApplySavedSignature(target.id)
         }
     }
+
 
     const scrollToNextUnsigned = (justSignedId: string, currentSignatures: SignatureCapture[]) => {
         const signedIds = new Set(currentSignatures.map(s => s.placeholderId))
@@ -632,15 +627,39 @@ export default function SignPage() {
                                 <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Review & Sign</h2>
                                 <p className="text-gray-500 text-sm mt-1">Please review the document and sign at the highlighted locations.</p>
                             </div>
-                            <div className="hidden md:flex flex-col items-end gap-2">
-                                <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-widest">
-                                    <span>{signatures.length}/{myPlaceholders.length} signatures</span>
-                                </div>
-                                <div className="w-48 h-2 rounded-full bg-gray-200 overflow-hidden shadow-inner">
-                                    <div
-                                        className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                                        style={{ width: `${myPlaceholders.length > 0 ? (signatures.length / myPlaceholders.length) * 100 : 0}%` }}
-                                    />
+                            <div className="flex items-center gap-4">
+                                {/* Go to Sign button — scrolls to first assigned placeholder */}
+                                {myPlaceholders.some(p => !isPlaceholderSigned(p.id)) && (
+                                    <button
+                                        onClick={() => {
+                                            const firstUnsigned = myPlaceholders.find(p => !isPlaceholderSigned(p.id))
+                                            if (!firstUnsigned) return
+                                            if (firstUnsigned.page_number !== activePage) {
+                                                setActivePage(firstUnsigned.page_number)
+                                                setTimeout(() => {
+                                                    const el = placeholderRefs.current[firstUnsigned.id]
+                                                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                }, 300)
+                                            } else {
+                                                const el = placeholderRefs.current[firstUnsigned.id]
+                                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                            }
+                                        }}
+                                        className="px-4 py-2 rounded-xl bg-[#4C00FF] text-white text-xs font-bold hover:bg-[#3D00CC] transition-all shadow-sm flex items-center gap-1.5"
+                                    >
+                                        <Navigation className="w-3.5 h-3.5" /> Go to Sign
+                                    </button>
+                                )}
+                                <div className="hidden md:flex flex-col items-end gap-2">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-widest">
+                                        <span>{signatures.length}/{myPlaceholders.length} signatures</span>
+                                    </div>
+                                    <div className="w-48 h-2 rounded-full bg-gray-200 overflow-hidden shadow-inner">
+                                        <div
+                                            className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                                            style={{ width: `${myPlaceholders.length > 0 ? (signatures.length / myPlaceholders.length) * 100 : 0}%` }}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -661,34 +680,7 @@ export default function SignPage() {
                             </div>
                         )}
 
-                        {/* Saved Signature Panel */}
-                        {savedSignatureImage && (
-                            <div className="mb-5 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
-                                <div
-                                    draggable
-                                    onDragStart={e => {
-                                        e.dataTransfer.setData('application/signature', 'saved')
-                                        e.dataTransfer.effectAllowed = 'copy'
-                                    }}
-                                    className="w-28 h-14 border-2 border-dashed border-[#4C00FF]/30 rounded-lg bg-[#4C00FF]/5 flex items-center justify-center cursor-grab active:cursor-grabbing hover:border-[#4C00FF]/60 transition-all"
-                                    title="Drag onto a Sign field"
-                                >
-                                    <img src={savedSignatureImage} alt="Saved" className="max-w-full max-h-full object-contain p-1" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-gray-900">Your Saved Signature</p>
-                                    <p className="text-[10px] text-gray-400">Drag onto a field or use Sign All</p>
-                                </div>
-                                {myPlaceholders.filter(p => isSignField(p.label) && !isPlaceholderSigned(p.id)).length > 0 && (
-                                    <button
-                                        onClick={handleSignAll}
-                                        className="px-4 py-2 rounded-xl bg-[#4C00FF] text-white text-xs font-bold hover:bg-[#3D00CC] transition-all shadow-sm"
-                                    >
-                                        ✓ Sign All ({myPlaceholders.filter(p => isSignField(p.label) && !isPlaceholderSigned(p.id)).length})
-                                    </button>
-                                )}
-                            </div>
-                        )}
+
 
                         {/* PDF Viewer */}
                         <div
@@ -728,7 +720,8 @@ export default function SignPage() {
                                     const signed = isPlaceholderSigned(p.id)
                                     const sig = signatures.find(s => s.placeholderId === p.id)
                                     const lastMatchingValue = getLastValueForFieldType(fieldType)
-                                    const canReplicateHere = !signed && lastMatchingValue && myPlaceholders.filter(pp => getFieldType(pp.label) === fieldType).length > 1
+                                    const canReplicateHere = !signed && (lastMatchingValue || (savedSignatureImage && isSignField(p.label)))
+                                    const replicateImage = lastMatchingValue || (isSignField(p.label) ? savedSignatureImage : null)
                                     const isEditing = editingFieldId === p.id
 
                                     return (
@@ -798,12 +791,12 @@ export default function SignPage() {
                                                 /* Replicate sign */
                                             ) : canReplicateHere ? (
                                                 <div className="flex flex-col items-center justify-center h-full w-full gap-1 p-1">
-                                                    <img src={lastMatchingValue!} alt="Preview" className="object-contain opacity-30 max-h-[50%]" />
+                                                    <img src={replicateImage!} alt="Preview" className="object-contain opacity-30 max-h-[50%]" />
                                                     <div className="flex gap-1 shrink-0">
                                                         <button
-                                                            onClick={(e) => { e.stopPropagation(); handleApplySame(p.id) }}
+                                                            onClick={(e) => { e.stopPropagation(); if (lastMatchingValue) { handleApplySame(p.id) } else if (savedSignatureImage && isSignField(p.label)) { handleApplySavedSignature(p.id) } }}
                                                             className="px-2 py-0.5 rounded-md text-[8px] font-bold bg-emerald-600 text-white shadow-sm"
-                                                        >✓ Apply Same</button>
+                                                        >✓ Apply</button>
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handlePlaceholderClick(p.id, p.label) }}
                                                             className="px-2 py-0.5 rounded-md text-[8px] font-bold bg-gray-500 text-white shadow-sm"
@@ -832,6 +825,7 @@ export default function SignPage() {
                             </button>
 
                             <div className="flex items-center gap-4">
+
                                 <div className="hidden sm:block text-right">
                                     <p className="text-xs font-bold text-gray-900">{signatures.length > 0 ? `${signatures.length} of ${myPlaceholders.length} signed` : 'No fields signed yet'}</p>
                                     <p className="text-[10px] text-gray-400 font-medium">Progress preserved locally</p>
