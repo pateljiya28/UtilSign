@@ -191,6 +191,7 @@ export async function POST(
                     height_percent: ph.height_percent,
                 },
                 imageBase64: sig.imageBase64,
+                signerEmail: signer.email,
             }
         })
 

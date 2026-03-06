@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFString, PDFArray, StandardFonts } from 'pdf-lib'
 
 interface BurnInput {
     placeholder: {
@@ -9,11 +9,15 @@ interface BurnInput {
         height_percent: number
     }
     imageBase64: string
+    signerName?: string
+    signerEmail?: string
+    signerDesignation?: string
+    signedAt?: string
 }
 
 /**
- * Burns one or more signature images into a PDF document at specified coordinates.
- * Coordinates are provided as percentages of page width/height, measured from top-left.
+ * Burns signature images into a PDF. Adds hover tooltip annotations
+ * sized to the text content showing signer info.
  */
 export async function burnSignaturesIntoPDF(
     pdfBytes: Uint8Array,
@@ -21,6 +25,10 @@ export async function burnSignaturesIntoPDF(
 ): Promise<Uint8Array> {
     const pdfDoc = await PDFDocument.load(pdfBytes)
     const pages = pdfDoc.getPages()
+
+    // Embed font to measure tooltip text width
+    const hasInfo = inputs.some(i => i.signerEmail || i.signerName || i.signerDesignation)
+    const font = hasInfo ? await pdfDoc.embedFont(StandardFonts.Helvetica) : null
 
     for (const input of inputs) {
         const { placeholder, imageBase64 } = input
@@ -34,7 +42,7 @@ export async function burnSignaturesIntoPDF(
         const page = pages[pageIdx]
         const { width, height } = page.getSize()
 
-        // Embed the image (handle both PNG and JPG data URLs)
+        // Embed the image
         let image
         try {
             if (imageBase64.includes('image/png')) {
@@ -42,24 +50,17 @@ export async function burnSignaturesIntoPDF(
             } else if (imageBase64.includes('image/jpeg') || imageBase64.includes('image/jpg')) {
                 image = await pdfDoc.embedJpg(imageBase64)
             } else {
-                // Fallback: try embedding as PNG if no prefix
                 image = await pdfDoc.embedPng(imageBase64)
             }
         } catch (err) {
-            console.error(`[pdf-burn] Failed to embed image for placeholder ${input.placeholder.page_number}:`, err)
+            console.error(`[pdf-burn] Failed to embed image:`, err)
             continue
         }
 
-        // Calculate absolute coordinates
-        // UI provides percentages from Top-Left. 
-        // pdf-lib uses points from Bottom-Left.
+        // Calculate absolute coordinates (UI top-left % → pdf-lib bottom-left pt)
         const absX = (placeholder.x_percent / 100) * width
         const absW = (placeholder.width_percent / 100) * width
         const absH = (placeholder.height_percent / 100) * height
-
-        // y_percent is distance from top.
-        // height - distance_from_top = distance_from_bottom.
-        // But drawImage's 'y' is the bottom edge of the image, so we subtract height of image too.
         const absY = height - ((placeholder.y_percent / 100) * height) - absH
 
         page.drawImage(image, {
@@ -68,6 +69,62 @@ export async function burnSignaturesIntoPDF(
             width: absW,
             height: absH,
         })
+
+        // ── Add hover tooltip annotation sized to text ──────────────────────
+        if (font && (input.signerEmail || input.signerName || input.signerDesignation)) {
+            const lines: string[] = []
+            if (input.signerDesignation) lines.push(`Designation: ${input.signerDesignation}`)
+            if (input.signerEmail) lines.push(`Email: ${input.signerEmail}`)
+
+            // Format timestamp
+            const ts = (input.signedAt ? new Date(input.signedAt) : new Date())
+                .toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                    hour12: true,
+                })
+            lines.push(`Signed: ${ts}`)
+
+            const tooltipText = lines.join('\n')
+            const titleText = input.signerDesignation || input.signerName || input.signerEmail || 'Signer'
+
+            // Measure text to size the annotation box
+            const tooltipFontSize = 8
+            const lineH = tooltipFontSize + 3
+            const padding = 4
+            const textWidths = lines.map(l => font.widthOfTextAtSize(l, tooltipFontSize))
+            const maxW = Math.max(...textWidths) + padding * 2
+            const totalH = lines.length * lineH + padding * 2
+
+            // Position: overlay the signature itself so hover triggers on the sign
+            // Rect = [x1, y1, x2, y2] covering the signature area
+            try {
+                const annotDict = pdfDoc.context.obj({
+                    Type: 'Annot',
+                    Subtype: 'Square',
+                    Rect: [absX, absY, absX + absW, absY + absH],
+                    Contents: PDFString.of(tooltipText),
+                    T: PDFString.of(titleText),
+                    C: [],
+                    IC: [],
+                    F: 292,   // Hidden + ReadOnly + NoZoom + NoRotate (not printed, not visible)
+                    BS: pdfDoc.context.obj({ W: 0, S: 'S' }),
+                })
+
+                const annotRef = pdfDoc.context.register(annotDict)
+
+                const pageDict = page.node
+                const existingAnnots = pageDict.lookup(PDFName.of('Annots'))
+                if (existingAnnots instanceof PDFArray) {
+                    existingAnnots.push(annotRef)
+                } else {
+                    pageDict.set(PDFName.of('Annots'), pdfDoc.context.obj([annotRef]))
+                }
+            } catch (annotErr) {
+                console.warn('[pdf-burn] Failed to add tooltip annotation:', annotErr)
+            }
+        }
     }
 
     return await pdfDoc.save()

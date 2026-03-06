@@ -13,7 +13,7 @@ export async function GET() {
         const admin = createSupabaseAdminClient()
         const { data, error } = await admin
             .from('templates')
-            .select('id, name, description, category, recipients, subject, message, file_name, created_at, updated_at')
+            .select('id, name, description, category, recipients, subject, message, file_name, file_path, placeholders, created_at, updated_at')
             .eq('owner_id', user.id)
             .order('updated_at', { ascending: false })
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json()
-        const { name, description, category, recipients, subject, message, file_path, file_name } = body
+        const { name, description, category, recipients, subject, message, file_path, file_name, placeholders } = body
 
         if (!name || typeof name !== 'string' || name.trim().length === 0) {
             return NextResponse.json({ error: 'Template name is required' }, { status: 400 })
@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
                 message: message || null,
                 file_path: file_path || null,
                 file_name: file_name || null,
+                placeholders: placeholders || [],
             })
             .select('id')
             .single()

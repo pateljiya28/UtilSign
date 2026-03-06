@@ -42,6 +42,7 @@ interface SignerEntry {
 interface SignatureCapture {
     placeholderId: string
     imageBase64: string
+    designation?: string
 }
 
 const SIGNER_COLORS = [
@@ -63,6 +64,9 @@ export default function NewDocumentPage() {
     const [step, setStep] = useState(1)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [templateLoading, setTemplateLoading] = useState(false)
+    const [isFromTemplate, setIsFromTemplate] = useState(false)
+    const [templateSignerNames, setTemplateSignerNames] = useState<string[]>([])
 
     // Current user email & name (for self-sign mode)
     const [userEmail, setUserEmail] = useState('')
@@ -99,7 +103,9 @@ export default function NewDocumentPage() {
     const [activePlaceholderId, setActivePlaceholderId] = useState<string | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const placeholderRefs = useRef<Record<string, HTMLDivElement | null>>({})
-    const [savedSignatureImage, setSavedSignatureImage] = useState<string | null>(null)
+    const [savedSignatures, setSavedSignatures] = useState<{ role: string, image: string }[]>([])
+    const [addingSignatureRole, setAddingSignatureRole] = useState<string>('')
+    const [showAddSignature, setShowAddSignature] = useState(false)
 
     // Envelope data (request mode)
     const [recipients, setRecipients] = useState<{ name: string; email: string }[]>([{ name: '', email: '' }])
@@ -112,6 +118,7 @@ export default function NewDocumentPage() {
     useEffect(() => {
         const templateId = searchParams.get('template')
         if (!templateId || isSelfSign) return
+        setTemplateLoading(true)
         const fetchTemplate = async () => {
             try {
                 const res = await fetch(`/api/templates/${templateId}`)
@@ -124,8 +131,81 @@ export default function NewDocumentPage() {
                     if (t.subject) setEmailSubject(t.subject)
                     if (t.message) setEmailMessage(t.message)
                     if (t.category) setCategory(t.category)
+
+                    // If the template has a stored PDF and placeholders, load them
+                    if (t.file_path && t.placeholders && t.placeholders.length > 0) {
+                        try {
+                            // Download the template's PDF
+                            const pdfRes = await fetch(`/api/templates/${templateId}/download`)
+                            if (pdfRes.ok) {
+                                const pdfBlob = await pdfRes.blob()
+                                const pdfFile = new File([pdfBlob], t.file_name || 'template.pdf', { type: 'application/pdf' })
+
+                                // Upload the PDF as a new document
+                                const formData = new FormData()
+                                formData.append('file', pdfFile)
+                                formData.append('type', 'request_sign')
+                                if (t.category) formData.append('category', t.category)
+                                const uploadRes = await fetch('/api/documents/upload', { method: 'POST', body: formData })
+                                const uploadData = await uploadRes.json()
+                                if (uploadRes.ok) {
+                                    setDocumentId(uploadData.documentId)
+                                    setFilePath(uploadData.filePath)
+
+                                    // Render the PDF pages
+                                    const pdfjsLib = await import('pdfjs-dist')
+                                    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+                                    const arrayBuffer = await pdfBlob.arrayBuffer()
+                                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+                                    const pages: string[] = []
+                                    for (let i = 1; i <= pdf.numPages; i++) {
+                                        const page = await pdf.getPage(i)
+                                        const viewport = page.getViewport({ scale: 1.5 })
+                                        const canvas = document.createElement('canvas')
+                                        canvas.width = viewport.width
+                                        canvas.height = viewport.height
+                                        const ctx = canvas.getContext('2d')!
+                                        await page.render({ canvasContext: ctx, viewport }).promise
+                                        pages.push(canvas.toDataURL('image/png'))
+                                    }
+                                    setPdfPages(pages)
+
+                                    // Set signer emails from template recipients (editable)
+                                    const recipientList = t.recipients || []
+                                    const emails = recipientList.map((r: { email: string }) => r.email || '')
+                                    const names = recipientList.map((r: { name: string }) => r.name || '')
+                                    setSignerEmails(emails.length > 0 ? emails : [''])
+                                    setTemplateSignerNames(names)
+
+                                    // Map template placeholders to document placeholders
+                                    const mappedPlaceholders = t.placeholders.map((tp: {
+                                        pageNumber: number; xPercent: number; yPercent: number;
+                                        widthPercent: number; heightPercent: number; label: string;
+                                        fieldType: string; signerIndex: number
+                                    }) => ({
+                                        id: crypto.randomUUID(),
+                                        pageNumber: tp.pageNumber,
+                                        xPercent: tp.xPercent,
+                                        yPercent: tp.yPercent,
+                                        widthPercent: tp.widthPercent,
+                                        heightPercent: tp.heightPercent,
+                                        label: tp.label,
+                                        assignedSignerEmail: emails[tp.signerIndex] || '',
+                                        fieldType: tp.fieldType,
+                                    }))
+                                    setPlaceholders(mappedPlaceholders)
+                                    setIsFromTemplate(true)
+
+                                    // Skip to step 2 (placeholders already placed)
+                                    setStep(2)
+                                }
+                            }
+                        } catch { /* template PDF load failed, user can still upload manually */ }
+                    }
                 }
-            } catch { /* ignore */ }
+            } catch { /* ignore */ } finally {
+                setTemplateLoading(false)
+            }
         }
         fetchTemplate()
     }, [searchParams, isSelfSign])
@@ -147,10 +227,21 @@ export default function NewDocumentPage() {
                 if (profile.name) setUserName(profile.name)
             }
         } catch { /* ignore */ }
-        // Restore saved signature from localStorage
+        // Restore saved signatures from localStorage (multi-role)
         try {
-            const savedSig = localStorage.getItem('utilsign_saved_signature')
-            if (savedSig) setSavedSignatureImage(savedSig)
+            const savedMulti = localStorage.getItem('utilsign_saved_signatures')
+            if (savedMulti) {
+                setSavedSignatures(JSON.parse(savedMulti))
+            } else {
+                // Migrate old single signature
+                const oldSig = localStorage.getItem('utilsign_saved_signature')
+                if (oldSig) {
+                    const migrated = [{ role: 'Default', image: oldSig }]
+                    setSavedSignatures(migrated)
+                    localStorage.setItem('utilsign_saved_signatures', JSON.stringify(migrated))
+                    localStorage.removeItem('utilsign_saved_signature')
+                }
+            }
         } catch { /* ignore */ }
     }, [])
 
@@ -432,10 +523,27 @@ export default function NewDocumentPage() {
     }
 
     const handleSignatureConfirm = (imageBase64: string) => {
+        // If adding a new role signature (from "Add Signature" button)
+        if (showAddSignature) {
+            const role = addingSignatureRole.trim() || 'Default'
+            setSavedSignatures(prev => {
+                const updated = [...prev.filter(s => s.role !== role), { role, image: imageBase64 }]
+                try { localStorage.setItem('utilsign_saved_signatures', JSON.stringify(updated)) } catch { /* ignore */ }
+                return updated
+            })
+            setShowAddSignature(false)
+            setAddingSignatureRole('')
+            setModalOpen(false)
+            return
+        }
+
         if (!activePlaceholderId) return
-        // Save signature permanently to localStorage
-        setSavedSignatureImage(imageBase64)
-        try { localStorage.setItem('utilsign_saved_signature', imageBase64) } catch { /* ignore */ }
+        // Save signature as Default role
+        setSavedSignatures(prev => {
+            const updated = [...prev.filter(s => s.role !== 'Default'), { role: 'Default', image: imageBase64 }]
+            try { localStorage.setItem('utilsign_saved_signatures', JSON.stringify(updated)) } catch { /* ignore */ }
+            return updated
+        })
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== activePlaceholderId)
             const updated = [...filtered, { placeholderId: activePlaceholderId, imageBase64 }]
@@ -475,7 +583,7 @@ export default function NewDocumentPage() {
     const handleApplySame = (placeholderId: string) => {
         const sigImage = signatures.length > 0
             ? signatures[signatures.length - 1].imageBase64
-            : savedSignatureImage
+            : (savedSignatures.length > 0 ? savedSignatures[0].image : null)
         if (!sigImage) return
         setSignatures(prev => {
             const filtered = prev.filter(s => s.placeholderId !== placeholderId)
@@ -617,8 +725,17 @@ export default function NewDocumentPage() {
             )}
 
             <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-24 pb-12">
+                {/* ════════════════ TEMPLATE LOADING ════════════════ */}
+                {templateLoading && (
+                    <div className="flex flex-col items-center justify-center py-32 animate-fade-in">
+                        <div className="w-10 h-10 border-3 border-[#4C00FF] border-t-transparent rounded-full animate-spin mb-4" />
+                        <p className="text-gray-500 text-sm font-medium">Loading template…</p>
+                        <p className="text-gray-400 text-xs mt-1">Preparing your document and fields</p>
+                    </div>
+                )}
+
                 {/* ════════════════ STEP 1: UNIFIED ENVELOPE ════════════════ */}
-                {step === 1 && (
+                {step === 1 && !templateLoading && (
                     <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
                         <div>
                             <h2 className="text-xl font-bold text-gray-900 mb-1">Create your envelope</h2>
@@ -950,344 +1067,463 @@ export default function NewDocumentPage() {
                             {loading ? 'Uploading…' : 'Next →'}
                         </button>
                     </div>
-                )}
+                )
+                }
 
                 {/* ════════════════ STEP 2: PLACEHOLDERS (SIDEBAR LAYOUT) ════════════════ */}
-                {step === 2 && (
-                    <div className="animate-fade-in flex gap-5 items-start" style={{ minHeight: 'calc(100vh - 140px)' }}>
-                        {/* ── Left Sidebar ── */}
-                        <div className="w-72 shrink-0 space-y-4 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-1">
-                            <div>
-                                <h2 className="text-lg font-bold text-gray-900">
-                                    {isSelfSign ? 'Sign Your Document' : 'Place signature fields'}
-                                </h2>
-                                <p className="text-gray-400 text-xs mt-1 leading-relaxed">
-                                    {isSelfSign
-                                        ? (savedSignatureImage
-                                            ? 'Drag your signature directly onto the PDF where you want to sign. Resize by dragging the corner.'
-                                            : 'Create your signature first, then drag it onto the PDF.')
-                                        : 'Drag fields from the toolbar below onto the PDF. Assign each field to a signer.'}
-                                </p>
-                            </div>
-
-                            {/* ── Draggable Fields Toolbar (hidden for self-sign when saved signature exists) ── */}
-                            {!(isSelfSign && savedSignatureImage) && (
-                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Fields</p>
-                                    <div className="grid grid-cols-2 gap-1.5">
-                                        {(isSelfSign ? FIELD_TYPES.filter(f => f.type === 'signature') : FIELD_TYPES).map(field => (
-                                            <div
-                                                key={field.type}
-                                                draggable
-                                                onDragStart={(e) => {
-                                                    e.dataTransfer.setData('text/plain', field.type)
-                                                    setDraggingFieldType(field.type)
-                                                }}
-                                                onDragEnd={() => setDraggingFieldType(null)}
-                                                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing border transition-all select-none ${draggingFieldType === field.type
-                                                    ? 'border-[#4C00FF] bg-[#4C00FF]/10 shadow-sm'
-                                                    : 'border-gray-200 hover:border-gray-300 bg-gray-50 hover:bg-gray-100'
-                                                    }`}
-                                            >
-                                                <GripHorizontal className="w-3 h-3 text-gray-400 shrink-0" />
-                                                <field.icon className="w-3.5 h-3.5 shrink-0" style={{ color: field.color }} />
-                                                <span className="text-gray-700">{field.label}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <p className="text-gray-400 text-[10px] mt-2 flex items-center gap-1">
-                                        <GripHorizontal className="w-3 h-3" /> Drag onto the document to place
+                {
+                    step === 2 && (
+                        <div className="animate-fade-in flex gap-5 items-start" style={{ minHeight: 'calc(100vh - 140px)' }}>
+                            {/* ── Left Sidebar ── */}
+                            <div className="w-72 shrink-0 space-y-4 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-1">
+                                <div>
+                                    <h2 className="text-lg font-bold text-gray-900">
+                                        {isSelfSign ? 'Sign Your Document' : 'Place signature fields'}
+                                    </h2>
+                                    <p className="text-gray-400 text-xs mt-1 leading-relaxed">
+                                        {isSelfSign
+                                            ? (savedSignatures.length > 0
+                                                ? 'Drag a signature onto the PDF where you want to sign. You can save multiple role signatures (CEO, CFO, etc.).'
+                                                : 'Add your signatures below, then drag them onto the PDF.')
+                                            : 'Drag fields from the toolbar below onto the PDF. Assign each field to a signer.'}
                                     </p>
                                 </div>
-                            )}
 
-                            {/* Self-sign: show who we're signing as */}
-                            {isSelfSign && userEmail && (
-                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 border-[#4C00FF]/20 bg-[#4C00FF]/5">
-                                    <div className="flex items-center gap-2">
-                                        <PenTool className="w-3.5 h-3.5 text-[#4C00FF]" />
-                                        <span className="text-xs font-medium text-[#4C00FF]">Signing as:</span>
-                                        <span className="text-xs text-gray-900 font-semibold">{userEmail}</span>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Recipients list — read-only for request mode (set in Step 1) */}
-                            {!isSelfSign && (
-                                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Recipients</p>
-                                    <div className="space-y-1.5">
-                                        {signerEmails.filter(Boolean).map((email, i) => (
-                                            <div key={i} className="flex items-center gap-1.5">
-                                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
-                                                <span className="text-xs text-gray-600 truncate">{email}</span>
-                                                <span className="text-[10px] text-slate-600 ml-auto shrink-0">#{i + 1}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Active signer selector (request mode only) */}
-                            {
-                                !isSelfSign && signerEmails.filter(e => e.trim() !== '').length > 1 && (
+                                {/* ── Draggable Fields Toolbar (hidden for self-sign when saved signatures exist) ── */}
+                                {!(isSelfSign && savedSignatures.length > 0) && (
                                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Drawing for:</p>
-                                        <div className="space-y-1">
-                                            {signerEmails.map((email, i) => {
-                                                if (!email.trim()) return null
-                                                const isActive = activeSignerIndex === i
-                                                return (
-                                                    <button
-                                                        key={i}
-                                                        onClick={() => setActiveSignerIndex(i)}
-                                                        className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive
-                                                            ? 'border-[#4C00FF]/20 text-gray-900 shadow-sm'
-                                                            : 'border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-900'
-                                                            }`}
-                                                        style={isActive ? { background: SIGNER_COLORS[i % SIGNER_COLORS.length] + '33' } : {}}
-                                                    >
-                                                        <div className="w-2 h-2 rounded-full" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
-                                                        <span className="truncate">{email}</span>
-                                                        {isActive && <Check className="w-3 h-3 ml-auto shrink-0" />}
-                                                    </button>
-                                                )
-                                            })}
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Fields</p>
+                                        <div className="grid grid-cols-2 gap-1.5">
+                                            {(isSelfSign ? FIELD_TYPES.filter(f => f.type === 'signature') : FIELD_TYPES).map(field => (
+                                                <div
+                                                    key={field.type}
+                                                    draggable
+                                                    onDragStart={(e) => {
+                                                        e.dataTransfer.setData('text/plain', field.type)
+                                                        setDraggingFieldType(field.type)
+                                                    }}
+                                                    onDragEnd={() => setDraggingFieldType(null)}
+                                                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium cursor-grab active:cursor-grabbing border transition-all select-none ${draggingFieldType === field.type
+                                                        ? 'border-[#4C00FF] bg-[#4C00FF]/10 shadow-sm'
+                                                        : 'border-gray-200 hover:border-gray-300 bg-gray-50 hover:bg-gray-100'
+                                                        }`}
+                                                >
+                                                    <GripHorizontal className="w-3 h-3 text-gray-400 shrink-0" />
+                                                    <field.icon className="w-3.5 h-3.5 shrink-0" style={{ color: field.color }} />
+                                                    <span className="text-gray-700">{field.label}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <p className="text-gray-400 text-[10px] mt-2 flex items-center gap-1">
+                                            <GripHorizontal className="w-3 h-3" /> Drag onto the document to place
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Self-sign: show who we're signing as */}
+                                {isSelfSign && userEmail && (
+                                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 border-[#4C00FF]/20 bg-[#4C00FF]/5">
+                                        <div className="flex items-center gap-2">
+                                            <PenTool className="w-3.5 h-3.5 text-[#4C00FF]" />
+                                            <span className="text-xs font-medium text-[#4C00FF]">Signing as:</span>
+                                            <span className="text-xs text-gray-900 font-semibold">{userEmail}</span>
                                         </div>
                                     </div>
-                                )
-                            }
+                                )}
 
-                            {/* Page navigation */}
-                            {
-                                pdfPages.length > 1 && (
+                                {/* Recipients list — editable when from template, read-only otherwise */}
+                                {!isSelfSign && isFromTemplate ? (
                                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Pages</p>
-                                        <div className="flex flex-wrap gap-1">
-                                            {pdfPages.map((_, i) => (
-                                                <button
-                                                    key={i}
-                                                    onClick={() => setActivePage(i + 1)}
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-[#4C00FF] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                                                >{i + 1}</button>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Signer Emails</p>
+                                        <div className="space-y-2">
+                                            {signerEmails.map((email, i) => (
+                                                <div key={i} className="flex items-center gap-2">
+                                                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-[10px] text-gray-400 leading-none mb-0.5">{templateSignerNames[i] || `Signer ${i + 1}`}</p>
+                                                        <input
+                                                            type="email"
+                                                            value={email}
+                                                            onChange={e => {
+                                                                const newEmails = [...signerEmails]
+                                                                newEmails[i] = e.target.value
+                                                                setSignerEmails(newEmails)
+                                                                // Update placeholders assigned to this signer
+                                                                setPlaceholders(prev => prev.map(p => {
+                                                                    // Find which signerIndex this placeholder was for
+                                                                    const oldEmail = signerEmails[i]
+                                                                    if (p.assignedSignerEmail === oldEmail || (!p.assignedSignerEmail && !oldEmail)) {
+                                                                        return { ...p, assignedSignerEmail: e.target.value }
+                                                                    }
+                                                                    return p
+                                                                }))
+                                                            }}
+                                                            placeholder="Enter email…"
+                                                            className="w-full text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1 text-gray-700 focus:border-[#4C00FF] focus:outline-none focus:ring-1 focus:ring-[#4C00FF]/20"
+                                                        />
+                                                    </div>
+                                                </div>
                                             ))}
                                         </div>
                                     </div>
-                                )
-                            }
-
-                            {/* Placeholder list */}
-                            {
-                                placeholders.length > 0 && (
+                                ) : !isSelfSign ? (
                                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                                            {placeholders.length} Placeholder{placeholders.length !== 1 ? 's' : ''}
-                                        </p>
-                                        <div className="space-y-1 max-h-40 overflow-y-auto">
-                                            {placeholders.map(p => {
-                                                const fc = FIELD_TYPES.find(f => f.type === p.fieldType)
-                                                return (
-                                                    <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-gray-600 py-0.5">
-                                                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
-                                                        <span className="truncate flex-1">{fc?.label || p.label} — P{p.pageNumber}</span>
-                                                        <button onClick={() => removePlaceholder(p.id)} className="text-red-600 hover:text-red-300 shrink-0">
-                                                            <Trash2 className="w-3 h-3" />
-                                                        </button>
-                                                    </div>
-                                                )
-                                            })}
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Recipients</p>
+                                        <div className="space-y-1.5">
+                                            {signerEmails.filter(Boolean).map((email, i) => (
+                                                <div key={i} className="flex items-center gap-1.5">
+                                                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
+                                                    <span className="text-xs text-gray-600 truncate">{email}</span>
+                                                    <span className="text-[10px] text-slate-600 ml-auto shrink-0">#{i + 1}</span>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
-                                )
-                            }
+                                ) : null}
 
-                            {/* Saved signature — drag to sign (self-sign only) */}
-                            {isSelfSign && savedSignatureImage && (
-                                <div className="bg-white rounded-2xl border border-[#4C00FF]/20 shadow-sm p-3">
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Your Saved Signature</p>
-                                    <div
-                                        draggable
-                                        onDragStart={(e) => {
-                                            e.dataTransfer.setData('application/signature', savedSignatureImage)
-                                            e.dataTransfer.effectAllowed = 'copy'
-                                        }}
-                                        className="border-2 border-dashed border-[#4C00FF]/30 rounded-lg p-2 cursor-grab active:cursor-grabbing hover:border-[#4C00FF]/60 hover:bg-[#4C00FF]/5 transition-all flex flex-col items-center gap-1.5"
-                                    >
-                                        <img src={savedSignatureImage} alt="Your signature" className="max-h-12 object-contain" draggable={false} />
-                                        <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                                            <GripHorizontal className="w-3 h-3" /> Drag onto PDF
-                                        </span>
-                                    </div>
-                                    {placeholders.length > 0 && placeholders.some(p => !isPlaceholderSigned(p.id)) && (
-                                        <button
-                                            onClick={() => {
-                                                const unsigned = placeholders.filter(p => !isPlaceholderSigned(p.id))
-                                                setSignatures(prev => [
-                                                    ...prev,
-                                                    ...unsigned.map(p => ({ placeholderId: p.id, imageBase64: savedSignatureImage }))
-                                                ])
-                                            }}
-                                            className="w-full mt-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-[#4C00FF] text-white hover:bg-[#3D00CC] transition-colors"
-                                        >
-                                            ✓ Sign All ({placeholders.filter(p => !isPlaceholderSigned(p.id)).length} remaining)
-                                        </button>
-                                    )}
-                                </div>
-                            )}
+                                {/* Active signer selector (request mode only) */}
+                                {
+                                    !isSelfSign && signerEmails.filter(e => e.trim() !== '').length > 1 && (
+                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Drawing for:</p>
+                                            <div className="space-y-1">
+                                                {signerEmails.map((email, i) => {
+                                                    if (!email.trim()) return null
+                                                    const isActive = activeSignerIndex === i
+                                                    return (
+                                                        <button
+                                                            key={i}
+                                                            onClick={() => setActiveSignerIndex(i)}
+                                                            className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive
+                                                                ? 'border-[#4C00FF]/20 text-gray-900 shadow-sm'
+                                                                : 'border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-900'
+                                                                }`}
+                                                            style={isActive ? { background: SIGNER_COLORS[i % SIGNER_COLORS.length] + '33' } : {}}
+                                                        >
+                                                            <div className="w-2 h-2 rounded-full" style={{ background: SIGNER_COLORS[i % SIGNER_COLORS.length] }} />
+                                                            <span className="truncate">{email}</span>
+                                                            {isActive && <Check className="w-3 h-3 ml-auto shrink-0" />}
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )
+                                }
 
-                            {/* Action buttons */}
-                            <div className="flex flex-col gap-2 pt-2">
-                                {isSelfSign && placeholders.length > 0 && allSigned ? (
-                                    <button
-                                        onClick={async () => {
-                                            await handleSavePlaceholders()
-                                            // handleSavePlaceholders moves to step 3, but since all signed we submit right away
-                                        }}
-                                        disabled={loading || submitting}
-                                        className="btn-primary text-xs w-full"
-                                    >
-                                        {loading ? 'Saving…' : '✓ Finalize & Save'}
-                                    </button>
-                                ) : (
-                                    <button onClick={handleSavePlaceholders} disabled={loading} className="btn-primary text-xs w-full">
-                                        {loading ? 'Saving…' : (isSelfSign ? 'Save & Sign →' : 'Save & Continue →')}
-                                    </button>
-                                )}
-                                <button onClick={() => setStep(1)} className="btn-secondary text-xs w-full">
-                                    <ArrowLeft className="w-3 h-3 inline mr-1" /> Back
-                                </button>
-                            </div>
-                        </div >
+                                {/* Page navigation */}
+                                {
+                                    pdfPages.length > 1 && (
+                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Pages</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {pdfPages.map((_, i) => (
+                                                    <button
+                                                        key={i}
+                                                        onClick={() => setActivePage(i + 1)}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activePage === i + 1 ? 'bg-[#4C00FF] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                                    >{i + 1}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )
+                                }
 
-                        {/* ── Right: PDF Canvas ── */}
-                        < div className="flex-1 min-w-0" >
-                            <div
-                                ref={pdfContainerRef}
-                                className={`relative inline-block border rounded-xl overflow-hidden cursor-crosshair select-none w-full transition-colors ${draggingFieldType ? 'border-[#4C00FF] border-2 bg-[#4C00FF]/[0.02]' : 'border-gray-200'}`}
-                                onMouseDown={handlePageMouseDown}
-                                onMouseMove={handlePageMouseMove}
-                                onMouseUp={handlePageMouseUp}
-                                onMouseLeave={() => setIsDragging(false)}
-                                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
-                                onDrop={(e) => {
-                                    // Handle signature drops (self-sign)
-                                    const sigData = e.dataTransfer.getData('application/signature')
-                                    if (sigData && isSelfSign) {
-                                        e.preventDefault()
-                                        const rect = e.currentTarget.getBoundingClientRect()
-                                        const dropX = ((e.clientX - rect.left) / rect.width) * 100
-                                        const dropY = ((e.clientY - rect.top) / rect.height) * 100
-                                        const target = placeholders
-                                            .filter(p => p.pageNumber === activePage && !isPlaceholderSigned(p.id))
-                                            .find(p =>
-                                                dropX >= p.xPercent && dropX <= p.xPercent + p.widthPercent &&
-                                                dropY >= p.yPercent && dropY <= p.yPercent + p.heightPercent
-                                            )
-                                        if (target) {
-                                            setSignatures(prev => [...prev.filter(s => s.placeholderId !== target.id), { placeholderId: target.id, imageBase64: sigData }])
-                                        } else {
-                                            // Drop on empty space → create placeholder + sign it
-                                            const sigW = 15
-                                            const sigH = 4
-                                            const clampedX = Math.max(0, Math.min(dropX - sigW / 2, 100 - sigW))
-                                            const clampedY = Math.max(0, Math.min(dropY - sigH / 2, 100 - sigH))
-                                            const newId = crypto.randomUUID()
-                                            setPlaceholders(prev => [...prev, {
-                                                id: newId,
-                                                pageNumber: activePage,
-                                                xPercent: clampedX,
-                                                yPercent: clampedY,
-                                                widthPercent: sigW,
-                                                heightPercent: sigH,
-                                                label: 'Sign',
-                                                assignedSignerEmail: userEmail,
-                                                fieldType: 'signature',
-                                            }])
-                                            setSignatures(prev => [...prev, { placeholderId: newId, imageBase64: sigData }])
-                                        }
-                                        return
-                                    }
-                                    // Handle field type drops
-                                    handleFieldDrop(e)
-                                }}
-                            >
-                                {pdfPages[activePage - 1] && (
-                                    <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="w-full" draggable={false} />
-                                )}
-
-                                {isDragging && (
-                                    <div
-                                        className="absolute border-2 border-brand-400 bg-[#4C00FF]/10 pointer-events-none"
-                                        style={{
-                                            left: `${Math.min(dragStart.x, dragCurrent.x)}%`,
-                                            top: `${Math.min(dragStart.y, dragCurrent.y)}%`,
-                                            width: `${Math.abs(dragCurrent.x - dragStart.x)}%`,
-                                            height: `${Math.abs(dragCurrent.y - dragStart.y)}%`,
-                                        }}
-                                    />
-                                )}
-
-                                {placeholders
-                                    .filter(p => p.pageNumber === activePage)
-                                    .map(p => {
-                                        const signed = isSelfSign && isPlaceholderSigned(p.id)
-                                        const sig = isSelfSign ? signatures.find(s => s.placeholderId === p.id) : null
-                                        return (
-                                            <div
-                                                key={p.id}
-                                                className={`placeholder-box absolute group ${signed ? 'border-2 border-emerald-500 bg-emerald-500/10' : ''}`}
-                                                style={{
-                                                    left: `${p.xPercent}%`,
-                                                    top: `${p.yPercent}%`,
-                                                    width: `${p.widthPercent}%`,
-                                                    height: `${p.heightPercent}%`,
-                                                    ...(!signed ? { border: `2px solid ${getSignerColor(p.assignedSignerEmail)}`, background: `${getSignerColor(p.assignedSignerEmail)}15` } : {}),
-                                                }}
-                                            >
-                                                {signed && sig ? (
-                                                    <img src={sig.imageBase64} alt="Signed" className="w-full h-full object-contain" />
-                                                ) : (
-                                                    <>
-                                                        <div className="absolute -top-7 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" style={{ zIndex: 50 }}>
-                                                            {!isSelfSign && (
-                                                                <select
-                                                                    className="text-[10px] bg-gray-100 text-gray-900 rounded px-1 py-0.5 border border-gray-300"
-                                                                    value={p.assignedSignerEmail}
-                                                                    onChange={e => updatePlaceholderEmail(p.id, e.target.value)}
-                                                                    onClick={e => e.stopPropagation()}
-                                                                    onMouseDown={e => e.stopPropagation()}
-                                                                >
-                                                                    {signerEmails.filter(Boolean).map(email => (
-                                                                        <option key={email} value={email}>{email}</option>
-                                                                    ))}
-                                                                </select>
-                                                            )}
-                                                            <button
-                                                                className="text-red-600 hover:text-red-300 bg-gray-100 rounded p-0.5"
-                                                                onClick={e => { e.stopPropagation(); removePlaceholder(p.id) }}
-                                                                onMouseDown={e => e.stopPropagation()}
-                                                            ><X className="w-3 h-3" /></button>
+                                {/* Placeholder list */}
+                                {
+                                    placeholders.length > 0 && (
+                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                                {placeholders.length} Placeholder{placeholders.length !== 1 ? 's' : ''}
+                                            </p>
+                                            <div className="space-y-1 max-h-40 overflow-y-auto">
+                                                {placeholders.map(p => {
+                                                    const fc = FIELD_TYPES.find(f => f.type === p.fieldType)
+                                                    return (
+                                                        <div key={p.id} className="flex items-center gap-1.5 text-[11px] text-gray-600 py-0.5">
+                                                            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: getSignerColor(p.assignedSignerEmail) }} />
+                                                            <span className="truncate flex-1">{fc?.label || p.label} — P{p.pageNumber}</span>
+                                                            <button onClick={() => removePlaceholder(p.id)} className="text-red-600 hover:text-red-300 shrink-0">
+                                                                <Trash2 className="w-3 h-3" />
+                                                            </button>
                                                         </div>
-                                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                            <span className="text-[10px] font-medium opacity-70 flex items-center gap-1" style={{ color: getSignerColor(p.assignedSignerEmail) }}>
-                                                                {(() => { const fc = FIELD_TYPES.find(f => f.type === p.fieldType); return fc ? <><fc.icon className="w-2.5 h-2.5" /> {fc.label}</> : <><PenTool className="w-2.5 h-2.5" /> {p.label}</> })()}
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )
+                                }
+
+                                {/* Saved signatures — drag to sign (self-sign only) */}
+                                {isSelfSign && (
+                                    <div className="bg-white rounded-2xl border border-[#4C00FF]/20 shadow-sm p-3">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Saved Signatures</p>
+                                        {savedSignatures.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {savedSignatures.map((sig, idx) => (
+                                                    <div key={`${sig.role}-${idx}`} className="relative group">
+                                                        <div
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.setData('application/signature', sig.image)
+                                                                e.dataTransfer.setData('application/signature-role', sig.role)
+                                                                e.dataTransfer.effectAllowed = 'copy'
+                                                            }}
+                                                            className="border-2 border-dashed border-[#4C00FF]/30 rounded-lg p-2 cursor-grab active:cursor-grabbing hover:border-[#4C00FF]/60 hover:bg-[#4C00FF]/5 transition-all"
+                                                        >
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="text-[10px] font-bold text-[#4C00FF] uppercase tracking-wider">{sig.role}</span>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        setSavedSignatures(prev => {
+                                                                            const updated = prev.filter((_, i) => i !== idx)
+                                                                            try { localStorage.setItem('utilsign_saved_signatures', JSON.stringify(updated)) } catch { /* ignore */ }
+                                                                            return updated
+                                                                        })
+                                                                    }}
+                                                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all p-0.5"
+                                                                    title="Remove signature"
+                                                                >
+                                                                    <X className="w-3 h-3" />
+                                                                </button>
+                                                            </div>
+                                                            <img src={sig.image} alt={`${sig.role} signature`} className="max-h-10 object-contain mx-auto" draggable={false} />
+                                                            <span className="text-[9px] text-gray-400 flex items-center justify-center gap-1 mt-1">
+                                                                <GripHorizontal className="w-2.5 h-2.5" /> Drag onto PDF
                                                             </span>
                                                         </div>
-                                                    </>
-                                                )}
-                                                {/* Resize handle */}
-                                                <div
-                                                    className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize z-20 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onMouseDown={(e) => handleResizeMouseDown(e, p.id)}
-                                                    style={{ background: 'linear-gradient(135deg, transparent 50%, rgba(76,0,255,0.5) 50%)', borderRadius: '0 0 4px 0' }}
-                                                />
+                                                    </div>
+                                                ))}
                                             </div>
-                                        )
-                                    })}
-                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-400 text-center py-2">No signatures saved yet</p>
+                                        )}
+
+                                        {/* Add Signature button + role selector */}
+                                        {showAddSignature ? (
+                                            <div className="mt-2 space-y-1.5">
+                                                <select
+                                                    value={addingSignatureRole}
+                                                    onChange={e => setAddingSignatureRole(e.target.value)}
+                                                    className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 focus:border-[#4C00FF] focus:outline-none"
+                                                >
+                                                    <option value="">Select role…</option>
+                                                    {['CEO', 'CFO', 'CTO', 'Director', 'Manager', 'Partner', 'Founder'].map(r => (
+                                                        <option key={r} value={r}>{r}</option>
+                                                    ))}
+                                                    <option value="__custom">Custom…</option>
+                                                </select>
+                                                {addingSignatureRole === '__custom' && (
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Enter role name…"
+                                                        className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 focus:border-[#4C00FF] focus:outline-none"
+                                                        onChange={e => setAddingSignatureRole(e.target.value)}
+                                                        autoFocus
+                                                    />
+                                                )}
+                                                <div className="flex gap-1.5">
+                                                    <button
+                                                        onClick={() => {
+                                                            if (!addingSignatureRole || addingSignatureRole === '__custom') return
+                                                            setModalOpen(true)
+                                                        }}
+                                                        disabled={!addingSignatureRole || addingSignatureRole === '__custom'}
+                                                        className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-[#4C00FF] text-white hover:bg-[#3D00CC] disabled:opacity-40 transition-colors"
+                                                    >
+                                                        Draw Signature
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setShowAddSignature(false); setAddingSignatureRole('') }}
+                                                        className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => setShowAddSignature(true)}
+                                                className="w-full mt-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold border-2 border-dashed border-[#4C00FF]/30 text-[#4C00FF] hover:border-[#4C00FF]/60 hover:bg-[#4C00FF]/5 transition-all flex items-center justify-center gap-1"
+                                            >
+                                                <PenTool className="w-3 h-3" /> Add Signature
+                                            </button>
+                                        )}
+
+                                        {/* Sign All button */}
+                                        {savedSignatures.length > 0 && placeholders.length > 0 && placeholders.some(p => !isPlaceholderSigned(p.id)) && (
+                                            <button
+                                                onClick={() => {
+                                                    const unsigned = placeholders.filter(p => !isPlaceholderSigned(p.id))
+                                                    const sigImage = savedSignatures[0].image
+                                                    setSignatures(prev => [
+                                                        ...prev,
+                                                        ...unsigned.map(p => ({ placeholderId: p.id, imageBase64: sigImage }))
+                                                    ])
+                                                }}
+                                                className="w-full mt-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-[#4C00FF] text-white hover:bg-[#3D00CC] transition-colors"
+                                            >
+                                                ✓ Sign All ({placeholders.filter(p => !isPlaceholderSigned(p.id)).length} remaining)
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Action buttons */}
+                                <div className="flex flex-col gap-2 pt-2">
+                                    {isSelfSign && placeholders.length > 0 && allSigned ? (
+                                        <button
+                                            onClick={async () => {
+                                                await handleSavePlaceholders()
+                                                // handleSavePlaceholders moves to step 3, but since all signed we submit right away
+                                            }}
+                                            disabled={loading || submitting}
+                                            className="btn-primary text-xs w-full"
+                                        >
+                                            {loading ? 'Saving…' : '✓ Finalize & Save'}
+                                        </button>
+                                    ) : (
+                                        <button onClick={handleSavePlaceholders} disabled={loading} className="btn-primary text-xs w-full">
+                                            {loading ? 'Saving…' : (isSelfSign ? 'Save & Sign →' : 'Save & Continue →')}
+                                        </button>
+                                    )}
+                                    <button onClick={() => setStep(1)} className="btn-secondary text-xs w-full">
+                                        <ArrowLeft className="w-3 h-3 inline mr-1" /> Back
+                                    </button>
+                                </div>
+                            </div >
+
+                            {/* ── Right: PDF Canvas ── */}
+                            < div className="flex-1 min-w-0" >
+                                <div
+                                    ref={pdfContainerRef}
+                                    className={`relative inline-block border rounded-xl overflow-hidden cursor-crosshair select-none w-full transition-colors ${draggingFieldType ? 'border-[#4C00FF] border-2 bg-[#4C00FF]/[0.02]' : 'border-gray-200'}`}
+                                    onMouseDown={handlePageMouseDown}
+                                    onMouseMove={handlePageMouseMove}
+                                    onMouseUp={handlePageMouseUp}
+                                    onMouseLeave={() => setIsDragging(false)}
+                                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }}
+                                    onDrop={(e) => {
+                                        // Handle signature drops (self-sign)
+                                        const sigData = e.dataTransfer.getData('application/signature')
+                                        if (sigData && isSelfSign) {
+                                            e.preventDefault()
+                                            const sigRole = e.dataTransfer.getData('application/signature-role') || undefined
+                                            const rect = e.currentTarget.getBoundingClientRect()
+                                            const dropX = ((e.clientX - rect.left) / rect.width) * 100
+                                            const dropY = ((e.clientY - rect.top) / rect.height) * 100
+                                            const target = placeholders
+                                                .filter(p => p.pageNumber === activePage && !isPlaceholderSigned(p.id))
+                                                .find(p =>
+                                                    dropX >= p.xPercent && dropX <= p.xPercent + p.widthPercent &&
+                                                    dropY >= p.yPercent && dropY <= p.yPercent + p.heightPercent
+                                                )
+                                            if (target) {
+                                                setSignatures(prev => [...prev.filter(s => s.placeholderId !== target.id), { placeholderId: target.id, imageBase64: sigData, designation: sigRole }])
+                                            } else {
+                                                // Drop on empty space → create placeholder + sign it
+                                                const sigW = 15
+                                                const sigH = 4
+                                                const clampedX = Math.max(0, Math.min(dropX - sigW / 2, 100 - sigW))
+                                                const clampedY = Math.max(0, Math.min(dropY - sigH / 2, 100 - sigH))
+                                                const newId = crypto.randomUUID()
+                                                setPlaceholders(prev => [...prev, {
+                                                    id: newId,
+                                                    pageNumber: activePage,
+                                                    xPercent: clampedX,
+                                                    yPercent: clampedY,
+                                                    widthPercent: sigW,
+                                                    heightPercent: sigH,
+                                                    label: 'Sign',
+                                                    assignedSignerEmail: userEmail,
+                                                    fieldType: 'signature',
+                                                }])
+                                                setSignatures(prev => [...prev, { placeholderId: newId, imageBase64: sigData, designation: sigRole }])
+                                            }
+                                            return
+                                        }
+                                        // Handle field type drops
+                                        handleFieldDrop(e)
+                                    }}
+                                >
+                                    {pdfPages[activePage - 1] && (
+                                        <img src={pdfPages[activePage - 1]} alt={`Page ${activePage}`} className="w-full" draggable={false} />
+                                    )}
+
+                                    {isDragging && (
+                                        <div
+                                            className="absolute border-2 border-brand-400 bg-[#4C00FF]/10 pointer-events-none"
+                                            style={{
+                                                left: `${Math.min(dragStart.x, dragCurrent.x)}%`,
+                                                top: `${Math.min(dragStart.y, dragCurrent.y)}%`,
+                                                width: `${Math.abs(dragCurrent.x - dragStart.x)}%`,
+                                                height: `${Math.abs(dragCurrent.y - dragStart.y)}%`,
+                                            }}
+                                        />
+                                    )}
+
+                                    {placeholders
+                                        .filter(p => p.pageNumber === activePage)
+                                        .map(p => {
+                                            const signed = isSelfSign && isPlaceholderSigned(p.id)
+                                            const sig = isSelfSign ? signatures.find(s => s.placeholderId === p.id) : null
+                                            return (
+                                                <div
+                                                    key={p.id}
+                                                    className={`placeholder-box absolute group ${signed ? 'border-2 border-emerald-500 bg-emerald-500/10' : ''}`}
+                                                    style={{
+                                                        left: `${p.xPercent}%`,
+                                                        top: `${p.yPercent}%`,
+                                                        width: `${p.widthPercent}%`,
+                                                        height: `${p.heightPercent}%`,
+                                                        ...(!signed ? { border: `2px solid ${getSignerColor(p.assignedSignerEmail)}`, background: `${getSignerColor(p.assignedSignerEmail)}15` } : {}),
+                                                    }}
+                                                >
+                                                    {signed && sig ? (
+                                                        <img src={sig.imageBase64} alt="Signed" className="w-full h-full object-contain" />
+                                                    ) : (
+                                                        <>
+                                                            <div className="absolute -top-7 left-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1" style={{ zIndex: 50 }}>
+                                                                {!isSelfSign && (
+                                                                    <select
+                                                                        className="text-[10px] bg-gray-100 text-gray-900 rounded px-1 py-0.5 border border-gray-300"
+                                                                        value={p.assignedSignerEmail}
+                                                                        onChange={e => updatePlaceholderEmail(p.id, e.target.value)}
+                                                                        onClick={e => e.stopPropagation()}
+                                                                        onMouseDown={e => e.stopPropagation()}
+                                                                    >
+                                                                        {signerEmails.filter(Boolean).map(email => (
+                                                                            <option key={email} value={email}>{email}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                )}
+                                                                <button
+                                                                    className="text-red-600 hover:text-red-300 bg-gray-100 rounded p-0.5"
+                                                                    onClick={e => { e.stopPropagation(); removePlaceholder(p.id) }}
+                                                                    onMouseDown={e => e.stopPropagation()}
+                                                                ><X className="w-3 h-3" /></button>
+                                                            </div>
+                                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                                <span className="text-[10px] font-medium opacity-70 flex items-center gap-1" style={{ color: getSignerColor(p.assignedSignerEmail) }}>
+                                                                    {(() => { const fc = FIELD_TYPES.find(f => f.type === p.fieldType); return fc ? <><fc.icon className="w-2.5 h-2.5" /> {fc.label}</> : <><PenTool className="w-2.5 h-2.5" /> {p.label}</> })()}
+                                                                </span>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    {/* Resize handle */}
+                                                    <div
+                                                        className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        onMouseDown={(e) => handleResizeMouseDown(e, p.id)}
+                                                        style={{ background: 'linear-gradient(135deg, transparent 50%, rgba(76,0,255,0.5) 50%)', borderRadius: '0 0 4px 0' }}
+                                                    />
+                                                </div>
+                                            )
+                                        })}
+                                </div>
+                            </div >
                         </div >
-                    </div >
-                )
+                    )
                 }
 
 

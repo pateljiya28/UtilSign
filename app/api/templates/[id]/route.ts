@@ -60,6 +60,7 @@ export async function PUT(
                 message: body.message ?? null,
                 file_path: body.file_path ?? null,
                 file_name: body.file_name ?? null,
+                placeholders: body.placeholders ?? [],
                 updated_at: new Date().toISOString(),
             })
             .eq('id', id)

@@ -6,6 +6,7 @@ import { logEvent } from '@/lib/audit'
 interface SignatureSubmission {
     placeholderId: string
     imageBase64: string
+    designation?: string
 }
 
 export async function POST(
@@ -154,6 +155,8 @@ export async function POST(
                     height_percent: ph.height_percent,
                 },
                 imageBase64: sig.imageBase64,
+                signerEmail: user.email!,
+                signerDesignation: sig.designation,
             }
         })
 
